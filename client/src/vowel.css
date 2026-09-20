@@ -189,8 +189,6 @@
 
 .vowel-overlay__right-actions {
   gap: 6px !important;
-  opacity: 1 !important;
-  pointer-events: auto !important;
 }
 .vowel-overlay__right-actions > button {
   border: 1px solid var(--border-dim) !important;
@@ -265,9 +263,14 @@
 .vowel-overlay__drag-handle,
 .vowel-overlay__resize-handle,
 .vowel-overlay__right-actions { transition: opacity 150ms ease; }
-.vowel-overlay[data-panel="closed"]:not(:hover) .vowel-overlay__drag-handle,
-.vowel-overlay[data-panel="closed"]:not(:hover) .vowel-overlay__right-actions {
+.vowel-overlay[data-expanded="false"]:not(:hover) .vowel-overlay__drag-handle,
+.vowel-overlay[data-expanded="false"]:not(:hover) .vowel-overlay__right-actions:not(:focus-within) {
   opacity: 0; pointer-events: none;
+}
+.vowel-overlay[data-expanded="true"] .vowel-overlay__right-actions,
+.vowel-overlay[data-expanded="false"]:hover .vowel-overlay__right-actions,
+.vowel-overlay[data-expanded="false"] .vowel-overlay__right-actions:focus-within {
+  opacity: 1; pointer-events: auto;
 }
 .vowel-overlay-surface,
 .vowel-telemetry-content {

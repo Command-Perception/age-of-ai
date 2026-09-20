@@ -1,16 +1,17 @@
 # Vowel popup UI: current implementation
 
-This document describes the Vowel conversation popup implemented in the
-`vowel-cloudflare` Admin application. It is a source guide for the popup only;
+This document describes the shared Vowel conversation popup implemented in
+`packages/vowel-popover`. It is a source guide for the popup only;
 it does not describe the Admin resource pages, the historical telemetry page,
 or an external application integration.
 
-The implementation lives in this checkout. All paths below are relative to the
-`vowel-cloudflare` repository root.
+The implementation lives in this checkout under `packages/vowel-popover`. All
+paths below are relative to this repository root.
 
 ## Entry point and lifecycle
 
-`apps/admin/src/main.tsx` owns the popup mount and the sidebar launcher.
+`packages/vowel-popover/src/index.ts` is the package entry point, and
+`packages/vowel-popover/src/vowel-overlay.tsx` owns the popup lifecycle.
 
 | Concern | Current implementation |
 | --- | --- |
@@ -26,16 +27,16 @@ and uses the Admin connection configuration plus the selected session profile.
 
 | File | Responsibility |
 | --- | --- |
-| `apps/admin/src/voice/vowel-overlay.tsx` | Fixed popup chrome, draggable/resizable layout, folds, controls, attachment queue, typed composer, and runtime provider. |
-| `apps/admin/src/voice/vowel-adapter.ts` | Live microphone/WebSocket session, realtime events, audio output, barge-in, cancellation, and voice telemetry. |
-| `apps/admin/src/voice/voice-panel.tsx` | Typed Vowel chat model and human approval UI for mutation tools. |
-| `apps/admin/src/voice/voice-thread.tsx` | assistant-ui thread renderer. |
-| `apps/admin/src/voice/microphone.ts` | Browser capture, resampling/PCM conversion, shared live microphone state, and local interruption signal. |
-| `apps/admin/src/voice/pcm16-playback.ts` | 24 kHz PCM playback and interruption-safe buffer handling. |
-| `apps/admin/src/voice/attachments.ts` and `voice-attachment-sender.ts` | Image/PDF attachment validation, preview state, encoding, and delivery with the next turn. |
-| `apps/admin/src/voice/voice-settings.tsx` and `voice-settings-store.ts` | Popup session-profile switcher, voice picker, favorites, and audio preview. |
-| `apps/admin/src/voice/telemetry*.tsx`, `telemetry.ts`, and `voice-timeline.ts` | Popup telemetry fold, live trace persistence, and responsiveness timeline. |
-| `apps/admin/src/voice/use-overlay-layout.ts` | Pointer and keyboard move/resize behavior with a reset action. |
+| `packages/vowel-popover/src/vowel-overlay.tsx` | Fixed popup chrome, draggable/resizable layout, folds, controls, attachment queue, typed composer, and runtime provider. |
+| `packages/vowel-popover/src/vowel-adapter.ts` | Live microphone/WebSocket session, realtime events, audio output, barge-in, cancellation, and voice telemetry. |
+| `packages/vowel-popover/src/voice-panel.tsx` | Typed Vowel chat model and human approval UI for mutation tools. |
+| `packages/vowel-popover/src/voice-thread.tsx` | assistant-ui thread renderer. |
+| `packages/vowel-popover/src/microphone.ts` | Browser capture, resampling/PCM conversion, shared live microphone state, and local interruption signal. |
+| `packages/vowel-popover/src/pcm16-playback.ts` | 24 kHz PCM playback and interruption-safe buffer handling. |
+| `packages/vowel-popover/src/attachments.ts` and `packages/vowel-popover/src/voice-attachment-sender.ts` | Image/PDF attachment validation, preview state, encoding, and delivery with the next turn. |
+| `packages/vowel-popover/src/voice-settings.tsx` and `packages/vowel-popover/src/voice-settings-store.ts` | Popup session-profile switcher, voice picker, favorites, and audio preview. |
+| `packages/vowel-popover/src/telemetry*.tsx`, `packages/vowel-popover/src/telemetry.ts`, and `packages/vowel-popover/src/voice-timeline.ts` | Popup telemetry fold, live trace persistence, and responsiveness timeline. |
+| `packages/vowel-popover/src/use-overlay-layout.ts` | Pointer and keyboard move/resize behavior with a reset action. |
 
 ## Popup layout and controls
 
@@ -88,8 +89,9 @@ the single capture source—do not add a second microphone or a second
 
 ### Typed messages
 
-The typed composer uses `vowelChatModel` in `voice-panel.tsx`, not a direct
-model-provider request. Each typed turn mints a short-lived Vowel session,
+The typed composer uses `vowelChatModel` in
+`packages/vowel-popover/src/voice-panel.tsx`, not a direct model-provider
+request. Each typed turn mints a short-lived Vowel session,
 opens the same realtime WebSocket contract, sends
 `conversation.item.create` and `response.create`, and streams assistant text
 into the assistant-ui thread. It can run without microphone permission.
@@ -179,12 +181,19 @@ event timing so it can show work before server-side aggregation completes.
 
 Keep the popup’s existing targeted tests aligned with changes:
 
-- `vowel-adapter*.test.ts`, `microphone*.test.ts`,
-  `pcm16-playback.test.ts`, and `silence-commit.test.ts` for voice/audio
+- `packages/vowel-popover/src/vowel-adapter*.test.ts`,
+  `packages/vowel-popover/src/microphone*.test.ts`,
+  `packages/vowel-popover/src/pcm16-playback.test.ts`, and
+  `packages/vowel-popover/src/silence-commit.test.ts` for voice/audio
   lifecycle and cancellation;
-- `attachments.test.ts` and `voice-panel.test.ts` for attachments and typed
+- `packages/vowel-popover/src/attachments.test.ts` and
+  `packages/vowel-popover/src/voice-panel.test.ts` for attachments and typed
   conversation/tool behavior;
-- `telemetry.test.ts`, `vowel-server-telemetry.test.ts`, and
-  `voice-timeline.test.ts` for trace merging and responsiveness measurements;
-- `overlay-geometry.test.ts` for popup move/resize bounds;
-- `voice-settings-store.test.ts` for selection/favorites persistence.
+- `packages/vowel-popover/src/telemetry.test.ts`,
+  `packages/vowel-popover/src/vowel-server-telemetry.test.ts`, and
+  `packages/vowel-popover/src/voice-timeline.test.ts` for trace merging and
+  responsiveness measurements;
+- `packages/vowel-popover/src/overlay-geometry.test.ts` for popup move/resize
+  bounds;
+- `packages/vowel-popover/src/voice-settings-store.test.ts` for
+  selection/favorites persistence.

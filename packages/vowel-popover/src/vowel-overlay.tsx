@@ -158,6 +158,7 @@ const OverlayChrome = ({ onClose, connectionError, onError, api, attachments }: 
   const closePanel = useCallback(() => setPanel("closed"), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [composing, setComposing] = useState(false);
+  const expanded = panel !== "closed" || settingsOpen || composing;
   const [draft, setDraft] = useState("");
   const composerRef = useRef<HTMLTextAreaElement>(null);
 
@@ -247,7 +248,7 @@ const OverlayChrome = ({ onClose, connectionError, onError, api, attachments }: 
       onDragLeave={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); if (--dragDepth.current <= 0) { dragDepth.current = 0; setDraggingFiles(false); } } }}
       onDrop={event => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); dragDepth.current = 0; setDraggingFiles(false); queueFiles(Array.from(event.dataTransfer.files)); } }}
       data-dragging-files={draggingFiles}
-      data-panel={panel} data-resized={layout.resized} aria-label="Vowel conversation" className="vowel-overlay group fixed left-1/2 top-2 z-50 w-[min(40rem,calc(100vw-1.5rem))] -translate-x-1/2 [overflow-anchor:none]">
+      data-panel={panel} data-expanded={expanded ? "true" : "false"} data-resized={layout.resized} aria-label="Vowel conversation" className="vowel-overlay group fixed left-1/2 top-2 z-50 w-[min(40rem,calc(100vw-1.5rem))] -translate-x-1/2 [overflow-anchor:none]">
       <div className="vowel-overlay-surface flex max-h-[calc(100dvh-1rem)] flex-col overflow-x-hidden overflow-y-auto rounded-[12px] bg-[var(--background)] pb-1 pt-1 shadow-overlay">
         <input ref={fileInput} type="file" multiple accept={ATTACHMENT_ACCEPT} aria-label="Attach files to Vowel" className="hidden" onChange={event => { queueFiles(Array.from(event.target.files ?? [])); event.target.value = ""; }} />
         {draggingFiles && <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-background/90"><span className="rounded-md bg-background px-3 py-2 text-sm font-medium">Drop files for your next message</span></div>}
@@ -337,7 +338,10 @@ const OverlayChrome = ({ onClose, connectionError, onError, api, attachments }: 
 
           <p role="status" className="min-w-0 flex-1 truncate text-[13px] text-[var(--foreground)]" title={statusLabel}>{statusLabel}</p>
 
-          <div className="vowel-overlay__right-actions flex shrink-0 items-center gap-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+          <div className={cn(
+            "vowel-overlay__right-actions flex shrink-0 items-center gap-3 transition-opacity",
+            expanded ? "opacity-100" : "opacity-0 group-hover:opacity-100 focus-within:opacity-100",
+          )}>
           <button type="button" aria-label="Conversation settings" aria-expanded={settingsOpen}
             onClick={() => setSettingsOpen((value) => !value)}
             className={cn("flex size-8 shrink-0 items-center justify-center rounded-[6px] text-muted-foreground transition-standard hover:bg-[var(--subtle)] hover:text-[var(--foreground)] focus-ring", settingsOpen && "bg-[var(--subtle)] text-foreground")}>
@@ -421,7 +425,7 @@ const OverlayChrome = ({ onClose, connectionError, onError, api, attachments }: 
           </div>
         </div>
       </div>
-      {(panel !== "closed" || settingsOpen || composing) && <button type="button" aria-label="Resize Vowel window" title="Drag to resize · Arrow keys to resize · Home to reset" {...layout.resizeHandle} className="vowel-overlay__resize-handle absolute bottom-0 right-0 flex size-4 touch-none items-center justify-center rounded-br-[12px] text-muted-foreground hover:text-foreground cursor-nwse-resize focus-ring opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      {expanded && <button type="button" aria-label="Resize Vowel window" title="Drag to resize · Arrow keys to resize · Home to reset" {...layout.resizeHandle} className="vowel-overlay__resize-handle absolute bottom-0 right-0 flex size-4 touch-none items-center justify-center rounded-br-[12px] text-muted-foreground hover:text-foreground cursor-nwse-resize focus-ring opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         <Grip aria-hidden="true" className="size-3" />
       </button>}
     </div>
