@@ -3,6 +3,9 @@ node_modules/
 dist/
 *.log
 
+# Copied at Vite startup/build from the pristine Vowel package.
+client/public/vad/
+
 # Cloudflare Tunnel (binario grande + arquivos temporarios/segredos)
 cloudflared.exe
 cloudflared_log.txt

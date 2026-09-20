@@ -4,6 +4,13 @@
 import { el } from '../ui';
 import { settings, RENDER_SCALES, LANGS, type Lang } from '../settings';
 import { t } from '../i18n';
+import {
+  DEFAULT_VOWEL_URL,
+  clearVowelConnection,
+  configureVowel,
+  readVowelConnection,
+  showVowel,
+} from '../vowel';
 
 /** Rótulo de cada idioma no seletor (sempre no próprio idioma — assim qualquer
  *  um se reconhece, independente de quem está lendo). */
@@ -26,6 +33,7 @@ export class SettingsOverlay {
   private canLeave = false;
   private leaveInGame = false;
   private confirming = false;
+  private activeTab: 'room' | 'vowel' = 'room';
 
   constructor(private deps: SettingsDeps) {
     this.el = el('div', 'overlay hidden');
@@ -40,6 +48,22 @@ export class SettingsOverlay {
     this.scaleBtns = [];
     const card = el('div', 'panel card opt-card');
     card.appendChild(el('h2', '', t('opt.title')));
+
+    const tabs = el('div', 'opt-tabs');
+    tabs.setAttribute('role', 'tablist');
+    const roomTab = el('button', 'opt-tab', t('opt.room_tab')) as HTMLButtonElement;
+    const vowelTab = el('button', 'opt-tab', 'Vowel') as HTMLButtonElement;
+    roomTab.type = 'button';
+    vowelTab.type = 'button';
+    roomTab.setAttribute('role', 'tab');
+    vowelTab.setAttribute('role', 'tab');
+    tabs.append(roomTab, vowelTab);
+    card.appendChild(tabs);
+
+    const roomPanel = el('div', 'opt-tab-panel');
+    roomPanel.setAttribute('role', 'tabpanel');
+    const vowelPanel = el('div', 'opt-tab-panel vowel-settings');
+    vowelPanel.setAttribute('role', 'tabpanel');
 
     // "Sair da sala" — no topo, só visível em sala/jogo (main chama setLeaveContext).
     // Em jogo, sair = desistir (o adversário ganha), então pede confirmação de 2 toques.
@@ -56,7 +80,7 @@ export class SettingsOverlay {
       this.deps.onLeaveRoom();
     });
     this.leaveBtn = leaveBtn;
-    card.appendChild(leaveBtn);
+    roomPanel.appendChild(leaveBtn);
 
     // Idioma da interface. A troca vai pro main via onLang: fora do jogo ele
     // recarrega (reconecta ao lobby); no jogo, troca ao vivo sem derrubar a partida.
@@ -73,10 +97,10 @@ export class SettingsOverlay {
       langBtns.appendChild(btn);
     }
     langRow.appendChild(langBtns);
-    card.appendChild(langRow);
+    roomPanel.appendChild(langRow);
 
-    card.appendChild(this.volumeRow(t('opt.music'), settings.musicVol, (v) => this.deps.onMusicVol(v)));
-    card.appendChild(this.volumeRow(t('opt.sfx'), settings.sfxVol, (v) => this.deps.onSfxVol(v)));
+    roomPanel.appendChild(this.volumeRow(t('opt.music'), settings.musicVol, (v) => this.deps.onMusicVol(v)));
+    roomPanel.appendChild(this.volumeRow(t('opt.sfx'), settings.sfxVol, (v) => this.deps.onSfxVol(v)));
 
     // Resolução (qualidade/desempenho)
     const res = el('div', 'opt-row');
@@ -89,11 +113,101 @@ export class SettingsOverlay {
       scales.appendChild(btn);
     }
     res.appendChild(scales);
-    card.appendChild(res);
+    roomPanel.appendChild(res);
     this.markScale(settings.renderScale);
 
     const hint = el('p', 'opt-hint', t('opt.res_hint'));
-    card.appendChild(hint);
+    roomPanel.appendChild(hint);
+
+    let connection = readVowelConnection();
+    const intro = el('p', 'vowel-settings-copy', t('opt.vowel_intro'));
+    vowelPanel.appendChild(intro);
+
+    const urlLabel = el('label', 'vowel-field');
+    urlLabel.appendChild(el('span', '', t('opt.vowel_url')));
+    const urlInput = el('input', 'txt vowel-input') as HTMLInputElement;
+    urlInput.type = 'url';
+    urlInput.setAttribute('autocomplete', 'url');
+    urlInput.value = connection?.baseURL ?? DEFAULT_VOWEL_URL;
+    urlInput.placeholder = DEFAULT_VOWEL_URL;
+    urlLabel.appendChild(urlInput);
+    vowelPanel.appendChild(urlLabel);
+
+    const keyLabel = el('label', 'vowel-field');
+    keyLabel.appendChild(el('span', '', t('opt.vowel_key')));
+    const keyInput = el('input', 'txt vowel-input') as HTMLInputElement;
+    keyInput.type = 'password';
+    keyInput.autocomplete = 'off';
+    keyInput.placeholder = connection ? t('opt.vowel_key_saved') : t('opt.vowel_key_placeholder');
+    keyLabel.appendChild(keyInput);
+    vowelPanel.appendChild(keyLabel);
+
+    const status = el(
+      'p',
+      `vowel-settings-status${connection ? ' connected' : ''}`,
+      connection ? t('opt.vowel_connected', { profile: connection.profileName }) : t('opt.vowel_not_connected'),
+    );
+    status.setAttribute('role', 'status');
+    vowelPanel.appendChild(status);
+
+    const vowelActions = el('div', 'vowel-settings-actions');
+    const connect = el('button', 'btn primary', t('opt.vowel_connect')) as HTMLButtonElement;
+    connect.type = 'button';
+    connect.addEventListener('click', async () => {
+      connect.disabled = true;
+      status.className = 'vowel-settings-status';
+      status.textContent = t('opt.vowel_checking');
+      try {
+        connection = await configureVowel(keyInput.value || connection?.apiKey || '', urlInput.value);
+        keyInput.value = '';
+        keyInput.placeholder = t('opt.vowel_key_saved');
+        status.className = 'vowel-settings-status connected';
+        status.textContent = t('opt.vowel_connected', { profile: connection.profileName });
+        showBtn.classList.remove('hidden');
+        disconnect.classList.remove('hidden');
+      } catch (cause) {
+        status.className = 'vowel-settings-status error';
+        status.textContent = cause instanceof Error ? cause.message : String(cause);
+      } finally {
+        connect.disabled = false;
+      }
+    });
+    const showBtn = el('button', `btn${connection ? '' : ' hidden'}`, t('opt.vowel_show')) as HTMLButtonElement;
+    showBtn.type = 'button';
+    showBtn.addEventListener('click', () => {
+      showVowel();
+      this.hide();
+    });
+    const disconnect = el('button', `btn danger${connection ? '' : ' hidden'}`, t('opt.vowel_disconnect')) as HTMLButtonElement;
+    disconnect.type = 'button';
+    disconnect.addEventListener('click', () => {
+      clearVowelConnection();
+      connection = null;
+      keyInput.value = '';
+      keyInput.placeholder = t('opt.vowel_key_placeholder');
+      status.className = 'vowel-settings-status';
+      status.textContent = t('opt.vowel_not_connected');
+      showBtn.classList.add('hidden');
+      disconnect.classList.add('hidden');
+    });
+    vowelActions.append(connect, showBtn, disconnect);
+    vowelPanel.appendChild(vowelActions);
+    vowelPanel.appendChild(el('p', 'vowel-secret-note', t('opt.vowel_session_note')));
+
+    const selectTab = (tab: 'room' | 'vowel') => {
+      this.activeTab = tab;
+      const roomActive = tab === 'room';
+      roomTab.classList.toggle('active', roomActive);
+      vowelTab.classList.toggle('active', !roomActive);
+      roomTab.setAttribute('aria-selected', String(roomActive));
+      vowelTab.setAttribute('aria-selected', String(!roomActive));
+      roomPanel.classList.toggle('hidden', !roomActive);
+      vowelPanel.classList.toggle('hidden', roomActive);
+    };
+    roomTab.addEventListener('click', () => selectTab('room'));
+    vowelTab.addEventListener('click', () => selectTab('vowel'));
+    selectTab(this.activeTab);
+    card.append(roomPanel, vowelPanel);
 
     const close = el('button', 'btn primary', t('opt.close'));
     close.addEventListener('click', () => this.hide());
@@ -142,7 +256,13 @@ export class SettingsOverlay {
     }
   }
 
-  show(): void {
+  show(tab?: 'room' | 'vowel'): void {
+    if (tab && tab !== this.activeTab) {
+      this.activeTab = tab;
+      const fresh = this.buildCard();
+      this.card.replaceWith(fresh);
+      this.card = fresh;
+    }
     // reabrir zera a confirmação pendente (evita sair no 1º toque de uma abertura antiga)
     this.confirming = false;
     if (this.leaveBtn) this.leaveBtn.textContent = t('room.leave');

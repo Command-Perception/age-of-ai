@@ -14,12 +14,15 @@ import { RoomScreen } from './screens/room';
 import { GameScreen } from './screens/game';
 import { GameOverScreen } from './screens/gameover';
 import { SettingsOverlay } from './screens/settings';
+import { mountVowel, readVowelConnection, subscribeVowelConnection } from './vowel';
 import './style.css';
+import './vowel.css';
 
 type ScreenName = 'name' | 'lobby' | 'room' | 'game';
 
 const app = document.getElementById('app');
 if (!app) throw new Error('elemento #app não encontrado');
+mountVowel();
 
 // idioma da página (acessibilidade/SEO) conforme a preferência detectada/salva
 document.documentElement.lang = settings.lang;
@@ -53,6 +56,17 @@ const gameOverScreen = new GameOverScreen({
 });
 document.body.appendChild(gameOverScreen.el);
 
+const vowelNag = document.createElement('button');
+vowelNag.id = 'vowel-nag';
+vowelNag.type = 'button';
+const syncVowelNag = () => {
+  vowelNag.classList.toggle('hidden', current !== 'game' || readVowelConnection() !== null);
+  vowelNag.textContent = t('opt.vowel_nag');
+  vowelNag.setAttribute('aria-label', t('opt.vowel_nag'));
+};
+subscribeVowelConnection(syncVowelNag);
+syncVowelNag();
+
 // Menu de OPÇÕES (global): engrenagem no canto + overlay, disponível em toda tela.
 // Música é singleton (aplica sempre); efeitos/resolução aplicam se há partida.
 const settingsOverlay = new SettingsOverlay({
@@ -74,6 +88,7 @@ const settingsOverlay = new SettingsOverlay({
     roomScreen.retranslate();
     gameScreen?.retranslate();
     settingsOverlay.retranslate();
+    syncVowelNag();
   },
   // "Sair da sala" pela engrenagem (funciona na sala E no meio do jogo). Em jogo o
   // servidor trata como desistência (o adversário ganha). Sai otimista pro lobby; o
@@ -94,6 +109,8 @@ const settingsOverlay = new SettingsOverlay({
   },
 });
 document.body.appendChild(settingsOverlay.el);
+vowelNag.addEventListener('click', () => settingsOverlay.show('vowel'));
+document.body.appendChild(vowelNag);
 
 const gearBtn = document.createElement('button');
 gearBtn.id = 'settings-gear';
@@ -156,6 +173,7 @@ function screenEl(name: ScreenName): HTMLElement {
 
 function showScreen(name: ScreenName): void {
   current = name;
+  syncVowelNag();
   app!.innerHTML = '';
   app!.appendChild(screenEl(name));
   if (name === 'name') nameScreen.focus();

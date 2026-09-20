@@ -1,0 +1,202 @@
+/* Tailwind utilities are generated from the pristine Vowel package. Preflight
+   is deliberately omitted so the game's existing canvas/HUD styles stay put. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@source "../../packages/vowel-popover/src/**/*.{ts,tsx}";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  /* Host-side aliases consumed by @vowel/vowel-popover. */
+  --background: #1d170f;
+  --foreground: var(--text);
+  --card: #21190f;
+  --card-foreground: var(--text);
+  --popover: #21190f;
+  --popover-foreground: var(--text);
+  --primary: var(--gold);
+  --primary-foreground: #1b1206;
+  --secondary: #332617;
+  --secondary-foreground: var(--text);
+  --muted-foreground: var(--muted);
+  --accent: #3a2d1c;
+  --accent-foreground: var(--gold-bright);
+  --destructive: var(--red);
+  --input: var(--border-dim);
+  --ring: var(--gold-bright);
+  --subtle: rgba(217, 169, 65, 0.12);
+  --focus: var(--gold-bright);
+}
+
+#vowel-root { position: relative; z-index: 40; }
+
+#vowel-nag {
+  position: fixed;
+  top: 106px;
+  left: 50%;
+  z-index: 34;
+  width: min(44rem, calc(100vw - 1.5rem));
+  min-height: 64px;
+  padding: 12px 24px;
+  transform: translateX(-50%);
+  color: var(--gold);
+  border: 1px dashed rgba(217, 169, 65, 0.62);
+  border-radius: 6px;
+  background:
+    radial-gradient(circle at 50% 0, rgba(217, 169, 65, 0.1), transparent 58%),
+    linear-gradient(180deg, rgba(38, 28, 17, 0.9), rgba(20, 15, 9, 0.92));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), inset 0 0 0 3px rgba(8, 5, 2, 0.28);
+  cursor: pointer;
+  font: 600 14px/1.35 Georgia, 'Palatino Linotype', 'Times New Roman', serif;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 3px #000;
+  transition: color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+#vowel-nag:hover,
+#vowel-nag:focus-visible {
+  color: var(--gold-bright);
+  border-color: var(--gold-bright);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.58), 0 0 18px rgba(217, 169, 65, 0.18);
+  outline: none;
+}
+#vowel-nag:active { transform: translateX(-50%) translateY(1px); }
+
+.vowel-overlay {
+  top: 106px !important;
+  z-index: 40 !important;
+  width: min(44rem, calc(100vw - 1.5rem)) !important;
+  color: var(--text);
+  font-family: Georgia, 'Palatino Linotype', 'Times New Roman', serif;
+  user-select: text;
+}
+
+.vowel-overlay *,
+[data-radix-popper-content-wrapper] * { box-sizing: border-box; }
+.vowel-overlay button,
+.vowel-overlay input,
+.vowel-overlay textarea,
+[data-radix-popper-content-wrapper] button,
+[data-radix-popper-content-wrapper] input,
+[data-radix-popper-content-wrapper] textarea { font: inherit; }
+.vowel-overlay button { border: 0; }
+
+.vowel-overlay-surface {
+  border: 1px solid var(--border) !important;
+  border-radius: 6px !important;
+  background:
+    radial-gradient(circle at 50% 0, rgba(217, 169, 65, 0.09), transparent 54%),
+    linear-gradient(180deg, rgba(43, 32, 20, 0.98), rgba(24, 18, 11, 0.98)) !important;
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.62),
+    inset 0 1px 0 rgba(246, 231, 180, 0.08),
+    0 0 0 1px rgba(15, 9, 4, 0.7) !important;
+}
+
+.vowel-overlay-surface::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  z-index: -1;
+  pointer-events: none;
+  border: 1px solid rgba(217, 169, 65, 0.16);
+  border-radius: 3px;
+}
+
+.vowel-overlay button { color: inherit; }
+.vowel-overlay button:hover { color: var(--gold-bright); }
+.vowel-overlay textarea,
+.vowel-overlay input {
+  color: var(--text);
+  caret-color: var(--gold-bright);
+}
+.vowel-overlay svg { stroke-width: 1.7; }
+.vowel-overlay .mic-wave-bar { background: var(--gold-bright); }
+
+.shadow-border-input { box-shadow: rgba(217, 169, 65, 0.28) 0 0 0 1px; }
+.shadow-overlay { box-shadow: none; }
+.focus-ring:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+.transition-standard {
+  transition-property: transform, opacity, background-color, color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.overlay-fold {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.overlay-fold[data-open="true"] { grid-template-rows: 1fr; }
+.overlay-fold-inner { min-height: 0; overflow: hidden; }
+.overlay-fold[data-open="true"] .overlay-fold-inner > * { min-height: min-content; }
+
+@keyframes vowel-mic-glow {
+  from { box-shadow: 0 0 0 1px rgba(217, 169, 65, 0.45), 0 0 5px rgba(217, 169, 65, 0.28); }
+  to { box-shadow: 0 0 0 1px var(--gold-bright), 0 0 14px rgba(240, 200, 105, 0.62); }
+}
+.mic-glow { animation: vowel-mic-glow 1.4s ease-in-out infinite alternate; }
+.mic-wave {
+  display: inline-flex; width: 36px; height: 18px; flex-shrink: 0;
+  align-items: center; justify-content: center; gap: 3px;
+}
+.mic-wave-bar {
+  width: 3px; height: 100%; border-radius: 1px;
+  background: var(--gold-bright); transform-origin: center;
+}
+
+.vowel-overlay[data-resized="true"] .vowel-overlay-surface { height: 100%; }
+.vowel-overlay[data-resized="true"] .vowel-content-fold[data-open="true"] { flex: 1 1 0; min-height: 0; }
+.vowel-overlay[data-resized="true"] .vowel-content-fold[data-open="true"] .overlay-fold-inner {
+  display: flex; min-height: 0; flex-direction: column;
+}
+.vowel-overlay[data-resized="true"] .vowel-content-fold[data-open="true"] .overlay-fold-inner > * {
+  min-height: 0; flex: 1;
+}
+
+.vowel-overlay__drag-handle,
+.vowel-overlay__resize-handle,
+.vowel-overlay__right-actions { transition: opacity 150ms ease; }
+.vowel-overlay[data-panel="closed"]:not(:hover) .vowel-overlay__drag-handle,
+.vowel-overlay[data-panel="closed"]:not(:hover) .vowel-overlay__right-actions {
+  opacity: 0; pointer-events: none;
+}
+.vowel-overlay-surface,
+.vowel-telemetry-content {
+  overscroll-behavior: contain;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 720px) {
+  .vowel-overlay { top: 60px !important; width: calc(100vw - 1rem) !important; }
+  #vowel-nag { top: 60px; width: calc(100vw - 1rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transition-standard,
+  .overlay-fold,
+  .mic-glow { transition: none !important; animation: none !important; }
+}

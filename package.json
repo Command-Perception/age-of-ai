@@ -8,7 +8,8 @@
   "workspaces": [
     "shared",
     "server",
-    "client"
+    "client",
+    "packages/*"
   ],
   "scripts": {
     "dev:server": "npm run dev -w server",

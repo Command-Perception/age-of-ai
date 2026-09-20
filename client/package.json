@@ -10,9 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@age/shared": "*"
+    "@age/shared": "*",
+    "@vowel/vowel-popover": "*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "tailwindcss": "^4.1.13",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"
   }

@@ -1,0 +1,52 @@
+.vowel-waterfall { border: 1px solid var(--subtle); border-radius: 12px; overflow: hidden; }
+.vowel-waterfall__toolbar { align-items: center; border-bottom: 1px solid var(--subtle); display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.vowel-waterfall__toolbar label { align-items: center; color: var(--muted-foreground); display: inline-flex; font-size: .7rem; gap: 5px; margin-right: auto; }
+.vowel-waterfall__toolbar select,
+.vowel-waterfall__toolbar button { background: transparent; border: 1px solid var(--subtle); border-radius: 6px; color: var(--foreground); }
+.vowel-waterfall__toolbar select { font-size: .75rem; padding: 4px 6px; }
+.vowel-waterfall__toolbar select:hover { background: var(--subtle); }
+.vowel-waterfall__list { display: grid; grid-auto-rows: max-content; gap: 6px; max-height: 440px; overflow: auto; padding: 10px; }
+.vowel-waterfall__list > p { color: var(--muted-foreground); margin: 0; padding: 8px; }
+.vowel-waterfall__turn { border: 1px solid var(--subtle); border-radius: 8px; overflow: hidden; }
+.vowel-waterfall__turn[data-error="true"] { border-color: color-mix(in oklab, var(--danger) 55%, transparent); }
+.vowel-waterfall__summary { align-items: center; background: transparent; border: 0; color: var(--foreground); cursor: pointer; display: grid; font: inherit; gap: 6px 8px; grid-template-columns: auto minmax(0, 1fr) auto; padding: 10px; text-align: left; width: 100%; }
+.vowel-waterfall__summary:hover { background: var(--subtle); }
+.vowel-waterfall__caret { color: var(--muted-foreground); font-size: .85rem; width: 1rem; }
+.vowel-waterfall__input { font-weight: 600; }
+.vowel-waterfall__when { color: var(--muted-foreground); font-size: .78rem; white-space: nowrap; }
+.vowel-waterfall__stats { color: var(--muted-foreground); font-size: .78rem; grid-column: 2 / -1; text-align: left; }
+.vowel-waterfall__aggregate { background: color-mix(in oklab, var(--foreground) 7%, transparent); border-radius: 99px; grid-column: 1 / -1; height: 6px; overflow: hidden; position: relative; }
+.vowel-waterfall__aggregate i { border-radius: 2px; display: block; height: 100%; position: absolute; top: 0; }
+.vowel-waterfall__aggregate i[data-phase="input"] { background: #a78bfa; }
+.vowel-waterfall__aggregate i[data-phase="model"] { background: #fbbf24; }
+.vowel-waterfall__aggregate i[data-phase="output"] { background: #4ade80; }
+.vowel-waterfall__aggregate i[data-phase="tool"] { background: #60a5fa; }
+.vowel-waterfall__aggregate i[data-phase="error"] { background: var(--danger); }
+.vowel-waterfall__turn[data-open="true"] .vowel-waterfall__aggregate { display: none; }
+.vowel-waterfall__events { display: grid; gap: 7px; list-style: none; margin: 0; padding: 0 10px 10px 32px; }
+.vowel-waterfall__event { align-items: center; display: grid; gap: 10px; grid-template-columns: minmax(120px, 1.2fr) minmax(80px, 2fr) auto; min-width: 0; padding: 3px 4px; }
+.vowel-waterfall__label { align-items: baseline; display: flex; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.vowel-waterfall__label span { color: var(--muted-foreground); font-size: .72rem; text-transform: uppercase; }
+.vowel-waterfall__label strong { color: var(--foreground); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vowel-waterfall__timeline { background: color-mix(in oklab, var(--foreground) 7%, transparent); border-radius: 99px; height: 5px; overflow: hidden; position: relative; }
+.vowel-waterfall__timeline i { background: #a8b3c7; border-radius: inherit; display: block; height: 100%; position: absolute; }
+.vowel-waterfall__event[data-phase="input"] i { background: #a78bfa; }
+.vowel-waterfall__event[data-phase="model"] i { background: #fbbf24; }
+.vowel-waterfall__event[data-phase="output"] i { background: #4ade80; }
+.vowel-waterfall__event[data-phase="tool"] i { background: #60a5fa; }
+.vowel-waterfall__event[data-phase="error"] i { background: var(--danger); }
+.vowel-waterfall__event[data-phase="error"] { background: color-mix(in oklab, var(--danger) 20%, transparent); border-radius: 5px; }
+.vowel-waterfall__event[data-phase="error"] .vowel-waterfall__label span,
+.vowel-waterfall__event[data-phase="error"] .vowel-waterfall__label strong { color: color-mix(in oklab, var(--danger) 70%, white); }
+.vowel-waterfall__event time { color: var(--muted-foreground); font-variant-numeric: tabular-nums; text-align: right; }
+.vowel-waterfall__detail { background: color-mix(in oklab, #60a5fa 25%, transparent); border: 1px solid color-mix(in oklab, #60a5fa 30%, transparent); border-radius: 5px; color: color-mix(in oklab, #60a5fa 70%, white); display: block; flex-basis: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.7rem; line-height: 1.45; margin-top: 3px; overflow-wrap: anywhere; padding: 4px 7px; white-space: pre-wrap; }
+@media (max-width: 640px) {
+  .vowel-waterfall__toolbar label { margin-right: 0; width: 100%; }
+  .vowel-waterfall__event { grid-template-columns: 1fr auto; }
+  .vowel-waterfall__timeline { display: none; }
+  .vowel-waterfall__summary { grid-template-columns: auto minmax(0, 1fr); }
+  .vowel-waterfall__when { grid-column: 2; text-align: left; }
+}
+
+.vowel-waterfall__event time { white-space: nowrap; }
+.vowel-waterfall__event time small { font-size: .7rem; }

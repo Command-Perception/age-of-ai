@@ -220,7 +220,24 @@ input.txt:focus { border-color: var(--gold); }
 #settings-gear:hover { color: var(--gold-bright); border-color: var(--gold); }
 #settings-gear:active { transform: translateY(1px); }
 
-.opt-card { width: 380px; gap: 14px; }
+.opt-card { width: 430px; gap: 14px; }
+.opt-tabs {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  padding: 4px; border: 1px solid var(--border-dim); border-radius: 6px;
+  background: rgba(10, 7, 4, 0.42);
+}
+.opt-tab {
+  padding: 8px 12px; border: 1px solid transparent; border-radius: 4px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit; font-variant: small-caps; letter-spacing: 0.08em;
+}
+.opt-tab:hover { color: var(--gold-bright); }
+.opt-tab.active {
+  color: var(--gold-bright); border-color: var(--border);
+  background: linear-gradient(#4a3517, #2b1f0c);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.opt-tab-panel { display: flex; flex-direction: column; gap: 14px; }
 .opt-row { display: flex; align-items: center; gap: 12px; }
 .opt-label { color: var(--text); font-size: 14.5px; width: 70px; flex: none; }
 .opt-pct { color: var(--muted); font-size: 13px; width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -228,6 +245,20 @@ input.txt:focus { border-color: var(--gold); }
 .opt-scales { display: flex; gap: 8px; flex: 1; }
 .opt-scales .scale-btn { flex: 1; padding: 6px 0; }
 .scale-btn.active { border-color: var(--gold); color: var(--gold-bright); background: linear-gradient(#4a3517, #2b1f0c); }
+
+.vowel-settings-copy { margin: 0; color: var(--parch); font-size: 13px; line-height: 1.5; }
+.vowel-field { display: flex; flex-direction: column; gap: 6px; color: var(--text); font-size: 13px; }
+.vowel-field > span { color: var(--gold); font-variant: small-caps; letter-spacing: 0.06em; }
+.vowel-input { width: 100%; }
+.vowel-settings-status {
+  min-height: 18px; margin: 0; color: var(--muted); font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.vowel-settings-status.connected { color: var(--green); }
+.vowel-settings-status.error { color: var(--red); }
+.vowel-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.vowel-settings-actions .btn { flex: 1 1 auto; padding-inline: 12px; }
+.vowel-secret-note { margin: -4px 0 0; color: var(--dim); font-size: 11.5px; line-height: 1.45; }
 
 .opt-slider {
   flex: 1; -webkit-appearance: none; appearance: none;
