@@ -14,7 +14,7 @@ import { RoomScreen } from './screens/room';
 import { GameScreen } from './screens/game';
 import { GameOverScreen } from './screens/gameover';
 import { SettingsOverlay } from './screens/settings';
-import { mountVowel, readVowelConnection, subscribeVowelConnection } from './vowel';
+import { mountVowel, readVowelConnection, setVowelScreenActive, subscribeVowelConnection } from './vowel';
 import './style.css';
 import './vowel.css';
 
@@ -173,6 +173,7 @@ function screenEl(name: ScreenName): HTMLElement {
 
 function showScreen(name: ScreenName): void {
   current = name;
+  setVowelScreenActive(name === 'room' || name === 'game');
   syncVowelNag();
   app!.innerHTML = '';
   app!.appendChild(screenEl(name));

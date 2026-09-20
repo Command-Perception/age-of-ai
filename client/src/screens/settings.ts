@@ -6,6 +6,7 @@ import { settings, RENDER_SCALES, LANGS, type Lang } from '../settings';
 import { t } from '../i18n';
 import {
   DEFAULT_VOWEL_URL,
+  VowelNetworkError,
   clearVowelConnection,
   configureVowel,
   readVowelConnection,
@@ -15,6 +16,21 @@ import {
 /** Rótulo de cada idioma no seletor (sempre no próprio idioma — assim qualquer
  *  um se reconhece, independente de quem está lendo). */
 const LANG_LABELS: Record<Lang, string> = { pt: 'Português', en: 'English', es: 'Español' };
+
+const EYE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.75"/></svg>';
+const EYE_OFF_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 6.1A11.8 11.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16.8 16.8 0 0 1-3.1 3.7M6.2 6.3C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6c1.2 0 2.3-.2 3.3-.6M9.9 9.8a3 3 0 0 0 4.2 4.3"/></svg>';
+const CLEAR_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg>';
+const COPY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
+const CHECK_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+
+function iconButton(className: string, label: string, icon: string): HTMLButtonElement {
+  const button = el('button', className) as HTMLButtonElement;
+  button.type = 'button';
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.innerHTML = icon;
+  return button;
+}
 
 export interface SettingsDeps {
   onMusicVol: (v: number) => void;   // 0..1
@@ -139,15 +155,76 @@ export class SettingsOverlay {
     keyInput.type = 'password';
     keyInput.autocomplete = 'off';
     keyInput.placeholder = connection ? t('opt.vowel_key_saved') : t('opt.vowel_key_placeholder');
-    keyLabel.appendChild(keyInput);
+    const keyShell = el('div', 'vowel-key-input-shell');
+    const keyControls = el('div', 'vowel-key-input-controls');
+    const serverKeyWarning = el('div', 'vowel-key-warning hidden', t('opt.vowel_server_key_warning'));
+    serverKeyWarning.setAttribute('role', 'status');
+    const toggleKey = iconButton('vowel-input-icon-btn', t('opt.vowel_key_show'), EYE_ICON);
+    const clearKey = iconButton('vowel-input-icon-btn', t('opt.vowel_key_clear'), CLEAR_ICON);
+    const syncKeyControls = () => {
+      const hasValue = keyInput.value.length > 0;
+      keyShell.classList.toggle('has-value', hasValue);
+      clearKey.disabled = !hasValue;
+      serverKeyWarning.classList.toggle('hidden', !keyInput.value.trim().startsWith('vk_'));
+    };
+    toggleKey.addEventListener('click', () => {
+      const showing = keyInput.type === 'text';
+      keyInput.type = showing ? 'password' : 'text';
+      const label = t(showing ? 'opt.vowel_key_show' : 'opt.vowel_key_hide');
+      toggleKey.title = label;
+      toggleKey.setAttribute('aria-label', label);
+      toggleKey.innerHTML = showing ? EYE_ICON : EYE_OFF_ICON;
+      keyInput.focus();
+    });
+    clearKey.addEventListener('click', () => {
+      keyInput.value = '';
+      syncKeyControls();
+      keyInput.focus();
+    });
+    keyInput.addEventListener('input', syncKeyControls);
+    keyControls.append(toggleKey, clearKey);
+    keyShell.append(keyInput, keyControls);
+    keyLabel.append(keyShell, serverKeyWarning);
     vowelPanel.appendChild(keyLabel);
 
-    const status = el(
-      'p',
-      `vowel-settings-status${connection ? ' connected' : ''}`,
+    const status = el('div', 'vowel-settings-status');
+    const statusMessage = el('span', 'vowel-settings-status-message');
+    const copyStatus = iconButton('vowel-status-copy hidden', t('opt.vowel_error_copy'), COPY_ICON);
+    let lastError = '';
+    let copiedTimer: number | undefined;
+    const setStatus = (kind: 'plain' | 'connected' | 'error', message: string) => {
+      status.className = `vowel-settings-status${kind === 'plain' ? '' : ` ${kind}`}`;
+      statusMessage.textContent = message;
+      lastError = kind === 'error' ? message : '';
+      copyStatus.classList.toggle('hidden', kind !== 'error');
+      copyStatus.title = t('opt.vowel_error_copy');
+      copyStatus.setAttribute('aria-label', t('opt.vowel_error_copy'));
+      copyStatus.innerHTML = COPY_ICON;
+    };
+    copyStatus.addEventListener('click', async () => {
+      if (!lastError) return;
+      try {
+        await navigator.clipboard.writeText(lastError);
+        const copiedLabel = t('opt.vowel_error_copied');
+        copyStatus.title = copiedLabel;
+        copyStatus.setAttribute('aria-label', copiedLabel);
+        copyStatus.innerHTML = CHECK_ICON;
+        if (copiedTimer !== undefined) window.clearTimeout(copiedTimer);
+        copiedTimer = window.setTimeout(() => {
+          copyStatus.title = t('opt.vowel_error_copy');
+          copyStatus.setAttribute('aria-label', t('opt.vowel_error_copy'));
+          copyStatus.innerHTML = COPY_ICON;
+        }, 1400);
+      } catch {
+        // Clipboard access can be denied by the browser; leave the error intact.
+      }
+    });
+    status.append(statusMessage, copyStatus);
+    status.setAttribute('role', 'status');
+    setStatus(
+      connection ? 'connected' : 'plain',
       connection ? t('opt.vowel_connected', { profile: connection.profileName }) : t('opt.vowel_not_connected'),
     );
-    status.setAttribute('role', 'status');
     vowelPanel.appendChild(status);
 
     const vowelActions = el('div', 'vowel-settings-actions');
@@ -155,19 +232,20 @@ export class SettingsOverlay {
     connect.type = 'button';
     connect.addEventListener('click', async () => {
       connect.disabled = true;
-      status.className = 'vowel-settings-status';
-      status.textContent = t('opt.vowel_checking');
+      setStatus('plain', t('opt.vowel_checking'));
       try {
         connection = await configureVowel(keyInput.value || connection?.apiKey || '', urlInput.value);
         keyInput.value = '';
+        syncKeyControls();
         keyInput.placeholder = t('opt.vowel_key_saved');
-        status.className = 'vowel-settings-status connected';
-        status.textContent = t('opt.vowel_connected', { profile: connection.profileName });
+        setStatus('connected', t('opt.vowel_connected', { profile: connection.profileName }));
         showBtn.classList.remove('hidden');
         disconnect.classList.remove('hidden');
       } catch (cause) {
-        status.className = 'vowel-settings-status error';
-        status.textContent = cause instanceof Error ? cause.message : String(cause);
+        const message = cause instanceof VowelNetworkError
+          ? t('opt.vowel_unreachable', { url: cause.baseURL })
+          : cause instanceof Error ? cause.message : String(cause);
+        setStatus('error', message);
       } finally {
         connect.disabled = false;
       }
@@ -184,9 +262,9 @@ export class SettingsOverlay {
       clearVowelConnection();
       connection = null;
       keyInput.value = '';
+      syncKeyControls();
       keyInput.placeholder = t('opt.vowel_key_placeholder');
-      status.className = 'vowel-settings-status';
-      status.textContent = t('opt.vowel_not_connected');
+      setStatus('plain', t('opt.vowel_not_connected'));
       showBtn.classList.add('hidden');
       disconnect.classList.add('hidden');
     });

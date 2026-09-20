@@ -250,12 +250,50 @@ input.txt:focus { border-color: var(--gold); }
 .vowel-field { display: flex; flex-direction: column; gap: 6px; color: var(--text); font-size: 13px; }
 .vowel-field > span { color: var(--gold); font-variant: small-caps; letter-spacing: 0.06em; }
 .vowel-input { width: 100%; }
+.vowel-key-input-shell { position: relative; }
+.vowel-key-input-shell .vowel-input { padding-right: 68px; }
+.vowel-key-input-controls {
+  position: absolute; top: 0; right: 5px; bottom: 0;
+  display: flex; align-items: center; gap: 2px;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.vowel-key-input-shell:focus-within .vowel-key-input-controls,
+.vowel-key-input-shell.has-value .vowel-key-input-controls { opacity: 1; pointer-events: auto; }
+.vowel-input-icon-btn,
+.vowel-status-copy {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 27px; height: 27px; padding: 0;
+  border: 0; border-radius: 4px; background: transparent;
+  color: var(--muted); cursor: pointer;
+}
+.vowel-input-icon-btn:hover,
+.vowel-input-icon-btn:focus-visible { color: var(--gold-bright); background: rgba(217, 169, 65, 0.12); outline: none; }
+.vowel-input-icon-btn:disabled { opacity: 0.32; cursor: default; }
+.vowel-input-icon-btn svg,
+.vowel-status-copy svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.vowel-key-warning {
+  display: flex; align-items: flex-start; gap: 7px;
+  padding: 8px 10px; border: 1px solid rgba(217, 169, 65, 0.62); border-radius: 5px;
+  background: rgba(153, 104, 20, 0.16); color: #f3d98b;
+  font-size: 11.5px; line-height: 1.4;
+}
+.vowel-key-warning::before { content: '⚠'; flex: none; color: var(--gold-bright); }
 .vowel-settings-status {
   min-height: 18px; margin: 0; color: var(--muted); font-size: 12.5px;
   overflow-wrap: anywhere;
 }
 .vowel-settings-status.connected { color: var(--green); }
-.vowel-settings-status.error { color: var(--red); }
+.vowel-settings-status.error {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 11px; border: 1px solid rgba(239, 83, 80, 0.78); border-radius: 6px;
+  background: rgba(158, 33, 33, 0.24); color: #fff;
+  box-shadow: inset 0 0 14px rgba(140, 22, 22, 0.12);
+}
+.vowel-settings-status-message { flex: 1; min-width: 0; line-height: 1.45; }
+.vowel-status-copy { flex: none; margin: -4px -5px -4px 0; color: rgba(255, 255, 255, 0.82); }
+.vowel-status-copy:hover,
+.vowel-status-copy:focus-visible { color: #fff; background: rgba(255, 255, 255, 0.14); outline: none; }
 .vowel-settings-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .vowel-settings-actions .btn { flex: 1 1 auto; padding-inline: 12px; }
 .vowel-secret-note { margin: -4px 0 0; color: var(--dim); font-size: 11.5px; line-height: 1.45; }
