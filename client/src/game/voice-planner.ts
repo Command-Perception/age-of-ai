@@ -13,7 +13,7 @@ type ActionFamily = 'gather' | 'build' | 'move' | 'train' | 'research' | 'combat
 interface ActionSlot { family: ActionFamily; index: number; total: number; familyOrdinal: number }
 const labels = (values: string[]) => Object.fromEntries(values.map(value => [value, value.replaceAll('_', ' ')]));
 const references = {
-  selected: 'Currently selected own units', idle: 'Idle own units', remaining: 'Available units not allocated to an earlier action in this request',
+  selected: 'Currently selected own units; explicit selection may reassign busy workers', idle: 'Idle own units', remaining: 'Available units not allocated to an earlier action in this request',
   from_food: 'Workers currently gathering food, farming, hunting, herding, fishing, or gathering berries',
   from_wood: 'Workers currently gathering wood', from_gold: 'Workers currently gathering gold', from_stone: 'Workers currently gathering stone',
   previous: 'Units referred to by the last successful command', automatic: 'No source job was specified; automatically allocate available idle units',
@@ -24,11 +24,13 @@ const locations = {
   pointer: 'At the current unobstructed pointer tile when no tile was selected',
   previous: 'Last successfully referenced location',
   town_center: 'Near an on-screen own town center',
+  mining_camp: 'Near an on-screen own mining camp',
   berries: 'Near an on-screen berry bush',
   woodline: 'Near an on-screen tree',
   gold: 'Beside an on-screen gold mine',
   stone: 'Beside an on-screen stone mine',
   selected_object: 'At/near the selected object',
+  builder: 'No location was stated; use the assigned villager’s current position and nearest legal footprint',
   explicit: 'Exact numeric map coordinates stated by the player',
 };
 const explicitEnum = <T extends string>(utterance: string, values: readonly T[]): T | undefined =>
@@ -122,7 +124,7 @@ const explicitBuildQuantity = (utterance: string, building: BuildingType): numbe
 };
 const explicitWorkerQuantity = (utterance: string): number | undefined => {
   const words = Object.keys(numberWords).join('|');
-  const match = utterance.match(new RegExp(`\\b(${words}|\\d{1,2})\\s+(?:idle\\s+)?(?:villagers?|workers?|builders?)\\b`, 'i'));
+  const match = utterance.match(new RegExp(`\\b(${words}|\\d{1,2})\\s+(?:(?:idle|selected)\\s+)?(?:villagers?|workers?|builders?)\\b`, 'i'));
   return spokenNumber(match?.[1]);
 };
 const explicitWorkerSource = (utterance: string): 'from_food' | 'from_wood' | 'from_gold' | 'from_stone' | undefined => {
@@ -190,6 +192,7 @@ const explicitGatherIntents = (utterance: string): Array<{ resource: ResourceTyp
   return intents;
 };
 const explicitLocation = (utterance: string): keyof typeof locations | undefined => {
+  if (/\bmining[ _-]?camp\b/i.test(utterance)) return 'mining_camp';
   if (/\btown[ _-]?cent(?:er|re)\b/i.test(utterance)) return 'town_center';
   if (/\b(?:gold|gold[ _-]?mine)\b/i.test(utterance)) return 'gold';
   if (/\b(?:stone|stone[ _-]?mine)\b/i.test(utterance)) return 'stone';
@@ -263,20 +266,25 @@ export class GamePlanner {
     units.sort((a, b) => Math.hypot(a.x - origin.x, a.y - origin.y) - Math.hypot(b.x - origin.x, b.y - origin.y) || a.id - b.id);
     return units.slice(0, count).map(u => u.id);
   }
-  private position(reference: string, utterance: string): Point {
+  private position(reference: string, utterance: string, builderIds: number[] = []): Point {
     const state = this.state;
     let position: Point | undefined;
     if (reference === 'selected_tile') position = this.interaction().selectedTile ?? this.interaction().pointer;
     else if (reference === 'pointer') position = this.interaction().pointer;
     else if (reference === 'previous') position = this.conversation.lastLocation;
-    else if (reference === 'town_center') {
+    else if (reference === 'builder') {
+      const builder = builderIds.map(id => state.units.get(id)).find(unit => unit?.owner === state.you && unit.type === 'villager');
+      if (builder) position = { x: builder.x, y: builder.y };
+    }
+    else if (reference === 'town_center' || reference === 'mining_camp') {
       const interaction = this.interaction();
       const onScreen = new Set(interaction.onScreenBuildingIds);
       const origin = interaction.selectedTile ?? interaction.pointer ?? interaction.camera;
-      const homes = this.ownBuildings().filter(b => b.type === 'town_center' && onScreen.has(b.id));
+      const buildingType = reference as 'town_center' | 'mining_camp';
+      const homes = this.ownBuildings().filter(b => b.type === buildingType && onScreen.has(b.id));
       homes.sort((a, b) => Math.hypot(a.tileX - origin.x, a.tileY - origin.y) - Math.hypot(b.tileX - origin.x, b.tileY - origin.y) || a.id - b.id);
       const home = homes[0];
-      if (home) position = { x: home.tileX + BUILDING_DEFS.town_center.size / 2, y: home.tileY + BUILDING_DEFS.town_center.size / 2 };
+      if (home) position = { x: home.tileX + BUILDING_DEFS[buildingType].size / 2, y: home.tileY + BUILDING_DEFS[buildingType].size / 2 };
     } else if (reference === 'selected_object') {
       if (state.selection.size !== 1) throw new ClarificationNeeded('Select one object to use as the location.');
       const id = [...state.selection][0]; const entity = state.units.get(id) ?? state.buildings.get(id) ?? state.nodes.get(id) ?? state.sheep.get(id);
@@ -295,18 +303,19 @@ export class GamePlanner {
     }
     if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y) || position.x < 0 || position.y < 0 || position.x >= state.map.size || position.y >= state.map.size) {
       if (['berries', 'woodline', 'gold', 'stone'].includes(reference)) throw new ClarificationNeeded(`I cannot see an eligible ${reference === 'woodline' ? 'tree' : reference} resource in the current viewport. Move the camera to one or select a terrain tile.`);
-      if (reference === 'town_center') throw new ClarificationNeeded('I cannot see one of your town centers in the current viewport. Move the camera to one or select a terrain tile and say “here”.');
+      if (reference === 'town_center' || reference === 'mining_camp') throw new ClarificationNeeded(`I cannot see one of your ${reference.replace('_', ' ')}s in the current viewport. Move the camera to one or select a terrain tile and say “here”.`);
+      if (reference === 'builder') throw new ClarificationNeeded('No assigned villager has a nearby legal building area. Select or point to a more open location.');
       throw new ClarificationNeeded('Where should that happen? Select a map tile, point at one, select an object, or give map coordinates.');
     }
     return { ...position };
   }
-  private placements(type: BuildingType, reference: string, utterance: string, count: number): Point[] {
-    const origin = this.position(reference, utterance);
+  private placements(type: BuildingType, reference: string, utterance: string, count: number, builderIds: number[] = []): Point[] {
+    const origin = this.position(reference, utterance, builderIds);
     const size = BUILDING_DEFS[type].size;
     const exact = (reference === 'selected_tile' || reference === 'pointer' || reference === 'explicit') && count === 1;
     const x = Math.floor(origin.x - (exact ? 0 : size / 2)); const y = Math.floor(origin.y - (exact ? 0 : size / 2));
     const candidates: Point[] = [];
-    const radius = exact ? 0 : 9;
+    const radius = exact ? 0 : reference === 'builder' ? 14 : 9;
     for (let dx = -radius; dx <= radius; dx++) for (let dy = -radius; dy <= radius; dy++) {
       if (this.state.canPlace(type, x + dx, y + dy)) candidates.push({ x: x + dx, y: y + dy });
     }
@@ -369,7 +378,7 @@ export class GamePlanner {
     const family = slot.family;
     const semanticSlot = slot.total > 1;
     const unitQuestions = (worker = false): Record<string, DecisionQuestion> => ({
-      units: choice('Which own units does the player refer to? Economic workers are never selected by identity. A role plus count such as “two villagers” means automatic idle allocation. “Other” means remaining. “From farming/food/wood/gold/stone” selects that current workforce for deliberate reassignment. Never steal busy workers unless a source job is named.', references),
+      units: choice('Which own units does the player refer to? Economic workers are never selected by identity. A role plus count such as “two villagers” means automatic idle allocation. “Other” means remaining. Selected workers and workers named by current job are deliberate reassignments, even when busy. Never steal other busy workers.', references),
       quantity: choice('How many units? Select all only when all or an entire selected/previous group is intended. For a delegated builder with no count use 1.', { ...labels(Array.from({ length: 20 }, (_, i) => String(i + 1))), all: 'The whole referenced group' }),
       unitType: choice('What type of units? Use any only for a referenced selected/previous group, not an unspecified army.', worker ? { villager: 'Land worker, villager, builder', fishing_boat: 'Fishing boat' } : { ...labels(Object.keys(UNIT_DEFS)), military: 'Military units, army (not economic units or transports)', any: 'Any type in the explicitly referenced group' }),
     });
@@ -377,7 +386,7 @@ export class GamePlanner {
     if (family === 'gather') questions = { ...unitQuestions(true), resource: choice('Which resource should be gathered?', labels(['food', 'wood', 'gold', 'stone'])), target: choice('What resource source is intended?', { nearest: 'No specific object named: choose nearest eligible known source', selected: 'Currently selected resource object', pointer: 'Resource object under pointer', previous: 'Same target as the previous gather order', ...labels(['berries', 'sheep', 'farm', 'fish']) }) };
     else if (family === 'build') {
       const { unitType: _irrelevantBuilderType, ...builderQuestions } = unitQuestions(true);
-      questions = { ...builderQuestions, building: choice('Which building? Resolve another one from the last successful build if available.', labels(Object.keys(BUILDING_DEFS))), buildingQuantity: choice('How many copies of that building? A singular or uncounted building means 1; a bare plural means 2.', labels(Array.from({ length: 5 }, (_, i) => String(i + 1)))), location: choice('Where should it be constructed? Houses with no stated location may use town_center; otherwise do not invent a location.', locations) };
+      questions = { ...builderQuestions, building: choice('Which building? Resolve another one from the last successful build if available.', labels(Object.keys(BUILDING_DEFS))), buildingQuantity: choice('How many copies of that building? A singular or uncounted building means 1; a bare plural means 2.', labels(Array.from({ length: 5 }, (_, i) => String(i + 1)))), location: choice('Where should it be constructed? When no location is stated, use builder. Do not invent another location.', locations) };
     }
     else if (family === 'move') questions = { ...unitQuestions(), operation: choice('Move units or set a building rally point?', { move: 'Move referenced units', rally: 'Set rally point of selected own production building' }), location: choice('Where should units go?', locations) };
     else if (family === 'train') questions = { unit: choice('Which unit should be trained? Resolve another one from the last successful training order if available.', labels(Object.keys(UNIT_DEFS))), quantity: choice('How many units to train? Default to one when singular or another one.', labels(Array.from({ length: 20 }, (_, i) => String(i + 1)))) };
@@ -402,13 +411,15 @@ export class GamePlanner {
       const workerQuantity = semanticSlot ? undefined : explicitWorkerQuantity(utterance);
       const workerSource = semanticSlot ? undefined : explicitWorkerSource(utterance);
       const ordinal = semanticSlot ? undefined : workerOrdinal(utterance);
+      const selectedWorkers = /\b(?:selected|these|those)\s+(?:villagers?|workers?|builders?)\b|\b(?:villagers?|workers?|builders?)\s+(?:(?:I|i've|we)\s+)?selected\b/i.test(utterance);
       const explicitIdentity = !semanticSlot && /\b(?:selected|these|those|them|previous|same|all)\b|\b(?:unit|worker|villager|builder)\s*(?:id\s*)?#?\d+\b|#\d+/i.test(utterance);
       const genericWorkerPool = !semanticSlot && worker && /\b(?:villagers?|workers?|builders?)\b/i.test(utterance) && !explicitIdentity;
       const singularWorker = !semanticSlot && /\b(?:an?|one|other|remaining)\s+(?:idle\s+)?(?:villager|worker|builder)\b/i.test(utterance);
       // “An idle worker” identifies a category, not one specific villager.
       // Choose from the idle pool deterministically; multi-action planning
       // reserves the first choice so the next clause receives another worker.
-      if (workerSource) reference = workerSource;
+      if (worker && selectedWorkers) reference = 'selected';
+      else if (workerSource) reference = workerSource;
       else if (singleIdleWorker || delegatedWorker || workerQuantity !== undefined && /\bidle\b/i.test(utterance)) reference = 'idle';
       else if (!worker && ordinal !== undefined) reference = 'explicit';
       else if (genericWorkerPool) reference = 'automatic';
@@ -430,6 +441,7 @@ export class GamePlanner {
       if (reference === 'all') quantity = 'all';
       else if (delegatedSingle) quantity = '1';
       else if (workerQuantity !== undefined) quantity = String(workerQuantity);
+      else if (reference === 'selected' && worker && !singularWorker) quantity = 'all';
       else if (genericWorkerPool && singularWorker) quantity = '1';
       else if (singleIdleWorker || reference === 'explicit' && ordinal !== undefined) quantity = '1';
       else if (reference === 'idle' && !/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(?:idle\s+)?(?:villagers?|workers?|builders?)\b/i.test(utterance)) {
@@ -497,12 +509,12 @@ export class GamePlanner {
       // returned unknown for text the planner can resolve safely itself.
       const building = (buildIntent?.building ?? (!semanticSlot ? explicitBuilding(utterance) ?? explicitEnum(utterance, Object.keys(BUILDING_DEFS) as BuildingType[]) : undefined) ?? get('building', 'Which building should I construct?')) as BuildingType;
       const count = buildIntent?.quantity ?? (semanticSlot ? Number(get('buildingQuantity', 'How many should I build?')) : explicitBuildQuantity(utterance, building));
-      // Houses have a conventional default beside a town center that is
-      // actually visible in the viewport. Other buildings still require an
-      // explicit location; “here” continues to resolve to the selected tile.
-      const location = buildIntent?.location ?? (semanticSlot ? resolved('location') : explicitLocation(utterance)) ?? (building === 'house' ? 'town_center' : get('location', 'Where should I place it?'));
+      // An omitted location starts at the assigned builder. Placement searches
+      // outward for the nearest legal footprint and the server moves the
+      // villager there, replacing its previous task when this is not queued.
+      const location = buildIntent?.location ?? (semanticSlot ? resolved('location') : explicitLocation(utterance)) ?? 'builder';
       this.available(`build:${building}`);
-      const points = this.placements(building, location, utterance, count);
+      const points = this.placements(building, location, utterance, count, unitIds);
       return points.map((point, index) => ({
         command: { kind: 'build' as const, unitIds, building, tileX: point.x, tileY: point.y, ...(index > 0 ? { queue: true } : {}) },
         summary: `Placed ${building} at ${point.x}, ${point.y}`,
