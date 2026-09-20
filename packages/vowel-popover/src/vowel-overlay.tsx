@@ -2,6 +2,7 @@ import { AttachmentPreview } from "./attachment-preview";
 import { ATTACHMENT_ACCEPT, createAttachmentStore, usePendingAttachments, type AttachmentStore } from "./attachments";
 import { useOverlayLayout } from "./use-overlay-layout";
 import { VoiceSettings } from "./voice-settings";
+import { InlineError } from "./components/inline-error";
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   AssistantRuntimeProvider,
@@ -18,7 +19,7 @@ import * as Atom from "effect/unstable/reactivity/Atom";
 import { useAtom } from "@effect/atom-react";
 import { LuBrain, LuEar, LuLoaderCircle, LuVolume2 } from "react-icons/lu";
 import type { ExportedMessageRepository } from "@assistant-ui/react";
-import { Mic as IoMic, XIcon, Settings, GripHorizontal, Grip, Paperclip, Copy as CopyIcon, Check as CheckIcon } from "lucide-react";
+import { Mic as IoMic, XIcon, Settings, GripHorizontal, Grip, Paperclip } from "lucide-react";
 import { cn } from "./lib/utils";
 import { HumanToolUIs, vowelChatModel } from "./voice-panel";
 import { VowelRealtimeAdapter } from "./vowel-adapter";
@@ -428,31 +429,8 @@ const OverlayChrome = ({ onClose, connectionError, onError, api, attachments }: 
 };
 
 const ConnectionErrorBanner = ({ message }: { readonly message: string }) => {
-  const [copied, setCopied] = useState(false);
   const full = `${message} You can retry the mic or type a message.`;
-  return (
-    <div
-      role="alert"
-      className="mx-3 mb-2 flex items-start gap-2 rounded-[8px] border border-destructive bg-destructive/20 px-3 py-2 text-sm text-white"
-    >
-      <span className="min-w-0 flex-1 break-words">{full}</span>
-      <button
-        type="button"
-        aria-label={copied ? "Error details copied" : "Copy error details"}
-        title="Copy error details"
-        className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-[6px] text-white/80 transition-standard hover:bg-white/10 hover:text-white focus-ring"
-        onClick={() => {
-          void navigator.clipboard.writeText(full)
-            .then(() => setCopied(true))
-            .catch(() => {});
-        }}
-      >
-        {copied
-          ? <CheckIcon aria-hidden="true" className="size-4" />
-          : <CopyIcon aria-hidden="true" className="size-4" />}
-      </button>
-    </div>
-  );
+  return <InlineError className="mx-3 mb-2" message={full} />;
 };
 
 const LiveMicLevelMeter = () => {

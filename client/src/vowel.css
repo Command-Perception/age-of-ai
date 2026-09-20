@@ -15,7 +15,8 @@
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
+  /* The game uses --muted for dim text; Vowel's utility expects a surface. */
+  --color-muted: #3a2d1c;
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
@@ -98,6 +99,55 @@
 [data-radix-popper-content-wrapper] button,
 [data-radix-popper-content-wrapper] input,
 [data-radix-popper-content-wrapper] textarea { font: inherit; }
+
+/* Voice/profile pickers render through a Radix portal outside #vowel-root. */
+[data-radix-popper-content-wrapper] [data-slot="popover-content"] {
+  border: 1px solid var(--border) !important;
+  background: linear-gradient(180deg, #2b2116, #1d170f) !important;
+  color: var(--text) !important;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.72), inset 0 1px 0 rgba(246, 231, 180, 0.07) !important;
+  font-family: Georgia, 'Palatino Linotype', 'Times New Roman', serif;
+}
+[data-radix-popper-content-wrapper] [data-slot="command"] {
+  background: transparent !important;
+  color: var(--text) !important;
+}
+[data-radix-popper-content-wrapper] [data-slot="input-group"] {
+  border: 1px solid var(--border-dim) !important;
+  background: #171109 !important;
+  color: var(--muted) !important;
+}
+[data-radix-popper-content-wrapper] [data-slot="command-input"] {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text) !important;
+  caret-color: var(--gold-bright);
+}
+[data-radix-popper-content-wrapper] [data-slot="command-input"]::placeholder {
+  color: var(--muted) !important;
+  opacity: 1;
+}
+[data-radix-popper-content-wrapper] [data-slot="command-item"] {
+  color: var(--text) !important;
+}
+[data-radix-popper-content-wrapper] [data-slot="command-item"][data-selected="true"] {
+  background: #3a2d1c !important;
+  color: var(--gold-bright) !important;
+}
+[data-radix-popper-content-wrapper] [data-slot="command-list"] p,
+[data-radix-popper-content-wrapper] [data-slot="command-empty"] {
+  color: var(--muted) !important;
+}
+[data-radix-popper-content-wrapper] [data-slot="button"] {
+  border-color: var(--border-dim) !important;
+  background: #332617 !important;
+  color: var(--gold-bright) !important;
+}
+[data-radix-popper-content-wrapper] [data-slot="button"]:hover,
+[data-radix-popper-content-wrapper] [data-slot="button"]:focus-visible {
+  border-color: var(--gold) !important;
+  background: #49351a !important;
+}
 .vowel-overlay button {
   appearance: none;
   border: 0;
@@ -155,7 +205,6 @@
   background: linear-gradient(180deg, rgba(74, 53, 23, 0.98), rgba(43, 31, 12, 0.98)) !important;
   color: var(--gold-bright) !important;
 }
-.vowel-overlay__right-actions > button:first-child { display: none; }
 .vowel-overlay button[aria-label="Hide Vowel"] { display: none; }
 .vowel-overlay button[aria-label$="voice conversation"] {
   border: 1px solid var(--border-dim) !important;

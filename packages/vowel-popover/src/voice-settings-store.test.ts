@@ -2,11 +2,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import { createVoiceSettings } from "./voice-settings-store";
 
 afterEach(() => vi.unstubAllGlobals());
-it("uses a profile's pinned voice and keeps favorites per TTS provider", () => {
+it("keeps favorites separate per TTS provider", () => {
   const storage = new Map<string, string>();
   vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
   const config = { baseURL: "https://example.test", apiKey: "test" };
-  const first = { id: "first", created_at: 0, tts_provider: "fish-audio", voice: "fish:pinned" };
+  const first = { id: "first", created_at: 0, tts_provider: "fish-audio" };
   const nariProfile = { id: "nari-profile", created_at: 0, tts_provider: "nari" };
   const voice = { id: "fish:voice", name: "Voice", detail: "en" };
   const nariVoice = { id: "nari:claire", name: "Claire", detail: "en · american · female" };
@@ -20,7 +20,6 @@ it("uses a profile's pinned voice and keeps favorites per TTS provider", () => {
   store.toggleFavorite(nariVoice);
   expect(store.getSnapshot().favorites).toEqual([nariVoice]);
   store.selectProfile(first);
-  // The browser override (latest selection) wins over the profile's pinned voice.
   expect(store.getSnapshot()).toMatchObject({ voice: { id: "fish:voice" }, favorites: [voice] });
   const restored = createVoiceSettings(config, first);
   expect(restored.getSnapshot()).toMatchObject({ voice: { id: "fish:voice" }, favorites: [voice] });

@@ -1,7 +1,7 @@
 import { VowelOverlay, createVoiceApi, type VoiceApi } from '@vowel/vowel-popover';
 import { Tooltip as RadixTooltip } from 'radix-ui';
 import { createRoot } from 'react-dom/client';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export interface VowelConnection {
   readonly apiKey: string;
@@ -9,6 +9,9 @@ export interface VowelConnection {
   readonly kind: 'client' | 'server';
   readonly profileId: string;
   readonly profileName: string;
+  readonly profileVoice: string | null;
+  readonly profileTtsProvider: string;
+  readonly profileMetadataVersion: 0 | 1 | 2;
   readonly pendingSession?: VowelClientSession;
 }
 
@@ -19,6 +22,8 @@ interface VowelClientSession {
   readonly profile?: {
     readonly id: string;
     readonly name: string;
+    readonly voice: string | null;
+    readonly ttsProvider: string;
   };
 }
 
@@ -27,6 +32,14 @@ interface VowelProfile {
   readonly name?: string | null;
   readonly is_default?: number | boolean;
   readonly created_at?: number;
+  readonly voice?: string | null;
+  readonly tts_provider?: string;
+}
+
+interface VowelVoiceOption {
+  readonly id: string;
+  readonly name: string;
+  readonly detail: string;
 }
 
 const STORAGE_KEY = 'ageofai:vowel-connection';
@@ -82,6 +95,9 @@ export function readVowelConnection(): VowelConnection | null {
       kind: value.kind === 'client' || value.apiKey.startsWith('vc_') ? 'client' : 'server',
       profileId: value.profileId,
       profileName: value.profileName || 'Default profile',
+      profileVoice: typeof value.profileVoice === 'string' ? value.profileVoice : null,
+      profileTtsProvider: value.profileTtsProvider || 'auto',
+      profileMetadataVersion: value.profileMetadataVersion === 2 ? 2 : value.profileMetadataVersion === 1 ? 1 : 0,
       ...(value.pendingSession ? { pendingSession: value.pendingSession } : {}),
     };
   } catch {
@@ -126,6 +142,8 @@ async function mintClientSession(apiKey: string, baseURL: string): Promise<Vowel
     readonly profile?: {
       readonly id?: unknown;
       readonly name?: unknown;
+      readonly voice?: unknown;
+      readonly tts_provider?: unknown;
     };
   };
   if (typeof body.client_secret !== 'string') {
@@ -136,7 +154,14 @@ async function mintClientSession(apiKey: string, baseURL: string): Promise<Vowel
     clientSecret: body.client_secret,
     expiresAt: typeof body.expires_at === 'number' ? body.expires_at : Date.now() + 5 * 60_000,
     ...(body.profile && typeof body.profile.id === 'string' && typeof body.profile.name === 'string'
-      ? { profile: { id: body.profile.id, name: body.profile.name } }
+      ? {
+          profile: {
+            id: body.profile.id,
+            name: body.profile.name,
+            voice: typeof body.profile.voice === 'string' ? body.profile.voice : null,
+            ttsProvider: typeof body.profile.tts_provider === 'string' ? body.profile.tts_provider : 'auto',
+          },
+        }
       : {}),
   };
 }
@@ -147,24 +172,181 @@ function realtimeURL(baseURL: string): string {
   return url.toString();
 }
 
-function createClientVoiceApi(connection: VowelConnection): VoiceApi {
-  let pendingSession = connection.pendingSession;
+const VOICE_PROVIDERS = ['auto', 'Fish Audio', 'Nari', 'Deepgram', 'Cloudflare Aura-2', 'Groq Orpheus'] as const;
+
+function providerFromVoice(id: string): string {
+  return id.startsWith('fish:') ? 'Fish Audio'
+    : id.startsWith('nari:') ? 'Nari'
+    : id.startsWith('deepgram:') ? 'Deepgram'
+    : id.startsWith('aura:') ? 'Cloudflare Aura-2'
+    : id.startsWith('groq:') ? 'Groq Orpheus'
+    : 'auto';
+}
+
+function voicePreferenceKey(connection: VowelConnection): string {
+  return `vowel.voice:${connection.baseURL}:voice:${connection.profileId}`;
+}
+
+function selectedVoice(connection: VowelConnection): VowelVoiceOption | null {
+  if (connection.profileVoice) {
+    return { id: connection.profileVoice, name: connection.profileVoice, detail: 'Pinned by this profile' };
+  }
+  try {
+    const raw = window.localStorage.getItem(voicePreferenceKey(connection));
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as Partial<VowelVoiceOption>;
+    return typeof stored.id === 'string' && typeof stored.name === 'string' && typeof stored.detail === 'string'
+      ? { id: stored.id, name: stored.name, detail: stored.detail }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function favoritesKey(connection: VowelConnection, provider: string): string {
+  return `vowel.voice:${connection.baseURL}:favorites:${provider}`;
+}
+
+function readFavorites(connection: VowelConnection, provider: string): VowelVoiceOption[] {
+  const providers = provider === 'auto' ? VOICE_PROVIDERS : [provider];
+  const favorites: VowelVoiceOption[] = [];
+  const seen = new Set<string>();
+  try {
+    for (const bucket of providers) {
+      const stored: unknown = JSON.parse(window.localStorage.getItem(favoritesKey(connection, bucket)) ?? '[]');
+      if (!Array.isArray(stored)) continue;
+      for (const item of stored) {
+        if (item === null || typeof item !== 'object') continue;
+        const voice = item as Partial<VowelVoiceOption>;
+        if (typeof voice.id !== 'string' || typeof voice.name !== 'string' || typeof voice.detail !== 'string' || seen.has(voice.id)) continue;
+        seen.add(voice.id);
+        favorites.push({ id: voice.id, name: voice.name, detail: voice.detail });
+      }
+    }
+  } catch {
+    // Browser storage is optional.
+  }
+  return favorites;
+}
+
+function createClientVoiceSettings(connection: VowelConnection): NonNullable<VoiceApi['settings']> {
   const profile = {
     id: connection.profileId,
     name: connection.profileName,
     created_at: 0,
+    tts_provider: connection.profileTtsProvider,
+    ...(connection.profileVoice ? { voice: connection.profileVoice } : {}),
   };
-  const settingsSnapshot = { profile, voice: null, provider: 'auto', favorites: [] };
-  const profileSettings: NonNullable<VoiceApi['settings']> = {
-    getSnapshot: () => settingsSnapshot,
-    subscribe: () => () => undefined,
+  let snapshot = {
+    profile,
+    voice: selectedVoice(connection),
+    provider: connection.profileTtsProvider,
+    favorites: connection.profileVoice ? [] : readFavorites(connection, connection.profileTtsProvider),
+  };
+  const listeners = new Set<() => void>();
+  const notify = () => listeners.forEach((listener) => listener());
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => { listeners.delete(listener); };
+    },
     selectProfile: () => undefined,
-    selectVoice: () => undefined,
-    toggleFavorite: () => undefined,
-    previewVoice: async () => { throw new Error('Voice preview is managed by the bound Vowel profile.'); },
+    selectVoice: (voice) => {
+      if (connection.profileVoice) return;
+      snapshot = { ...snapshot, voice };
+      try {
+        if (voice) window.localStorage.setItem(voicePreferenceKey(connection), JSON.stringify(voice));
+        else window.localStorage.removeItem(voicePreferenceKey(connection));
+      } catch {
+        // Keep the current-session choice when storage is disabled.
+      }
+      notify();
+    },
+    toggleFavorite: (voice) => {
+      if (connection.profileVoice) return;
+      const provider = snapshot.provider === 'auto' ? providerFromVoice(voice.id) : snapshot.provider;
+      const favorites = readFavorites(connection, provider);
+      const next = favorites.some((item) => item.id === voice.id)
+        ? favorites.filter((item) => item.id !== voice.id)
+        : [...favorites, voice];
+      snapshot = {
+        ...snapshot,
+        provider,
+        favorites: next,
+      };
+      try {
+        window.localStorage.setItem(favoritesKey(connection, provider), JSON.stringify(next));
+      } catch {
+        // Keep the current-session favorites when storage is disabled.
+      }
+      notify();
+    },
+    previewVoice: async (signal) => {
+      if (!snapshot.voice) throw new Error('Select a voice to preview.');
+      const response = await fetchVowel(connection.baseURL, '/v1/voices/preview', {
+        body: JSON.stringify({ profile_id: connection.profileId, voice: snapshot.voice.id }),
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${connection.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+        signal,
+      });
+      if (!response.ok) {
+        const detail = readErrorMessage(await response.text());
+        throw new Error(detail || `Vowel could not preview this voice (${response.status}).`);
+      }
+      if (!response.body) throw new Error('Vowel returned no preview audio.');
+      return response.body;
+    },
     listProfiles: async () => ({ data: [profile] }),
-    listVoices: async () => ({ data: [], hasMore: false, provider: 'auto' }),
+    listVoices: async (query, page = 1, signal) => {
+      if (connection.profileVoice) {
+        const pinned = selectedVoice(connection);
+        return {
+          data: pinned ? [pinned] : [],
+          hasMore: false,
+          provider: snapshot.provider,
+        };
+      }
+      const search = new URLSearchParams({
+        profile_id: connection.profileId,
+        q: query,
+        page: String(page),
+      });
+      const response = await fetchVowel(connection.baseURL, `/v1/voices?${search}`, {
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${connection.apiKey}` },
+        ...(signal ? { signal } : {}),
+      });
+      if (!response.ok) {
+        const detail = readErrorMessage(await response.text());
+        throw new Error(detail || `Vowel could not load voices (${response.status}).`);
+      }
+      const body = await response.json() as {
+        readonly data?: VowelVoiceOption[];
+        readonly hasMore?: boolean;
+        readonly provider?: string;
+      };
+      const result = {
+        data: Array.isArray(body.data) ? body.data : [],
+        hasMore: body.hasMore === true,
+        provider: typeof body.provider === 'string' ? body.provider : snapshot.provider,
+      };
+      if (result.provider !== snapshot.provider) {
+        snapshot = { ...snapshot, provider: result.provider, favorites: readFavorites(connection, result.provider) };
+        notify();
+      }
+      return result;
+    },
   };
+}
+
+function createClientVoiceApi(connection: VowelConnection): VoiceApi {
+  let pendingSession = connection.pendingSession;
+  const profileSettings = createClientVoiceSettings(connection);
   return {
     profileLocked: true,
     settings: profileSettings,
@@ -208,6 +390,9 @@ export async function configureVowel(apiKey: string, rawBaseURL: string): Promis
       kind: 'client',
       profileId: pendingSession.profile.id,
       profileName: pendingSession.profile.name,
+      profileVoice: pendingSession.profile.voice,
+      profileTtsProvider: pendingSession.profile.ttsProvider,
+      profileMetadataVersion: 2,
       pendingSession,
     };
     window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(connection));
@@ -234,6 +419,9 @@ export async function configureVowel(apiKey: string, rawBaseURL: string): Promis
     kind: 'server',
     profileId: profile.id,
     profileName: profile.name || 'Default profile',
+    profileVoice: typeof profile.voice === 'string' ? profile.voice : null,
+    profileTtsProvider: profile.tts_provider || 'auto',
+    profileMetadataVersion: 2,
   };
   window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(connection));
   window.dispatchEvent(new CustomEvent(CONNECTION_EVENT));
@@ -258,6 +446,7 @@ function VowelMount() {
   const [connection, setConnection] = useState<VowelConnection | null>(() => readVowelConnection());
   const [open, setOpen] = useState(() => connection !== null);
   const [activeScreen, setActiveScreen] = useState(() => screenActive);
+  const clientProfileRefreshStarted = useRef(false);
 
   useEffect(() => {
     const onConnection = () => {
@@ -283,7 +472,9 @@ function VowelMount() {
   }, []);
 
   useEffect(() => {
-    if (!connection || connection.kind !== 'client' || connection.profileId !== 'key-bound') return;
+    if (!connection || connection.kind !== 'client') return;
+    if (clientProfileRefreshStarted.current) return;
+    clientProfileRefreshStarted.current = true;
     let cancelled = false;
     void mintClientSession(connection.apiKey, connection.baseURL).then((pendingSession) => {
       if (cancelled || !pendingSession.profile) return;
@@ -291,11 +482,17 @@ function VowelMount() {
         ...connection,
         profileId: pendingSession.profile.id,
         profileName: pendingSession.profile.name,
+        profileVoice: pendingSession.profile.voice,
+        profileTtsProvider: pendingSession.profile.ttsProvider,
+        profileMetadataVersion: 2,
         pendingSession,
       };
       window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(resolved));
       window.dispatchEvent(new CustomEvent(CONNECTION_EVENT));
-    }).catch(() => undefined);
+    }).catch(() => {
+      // Allow a later connection event to retry if the one-time refresh failed.
+      clientProfileRefreshStarted.current = false;
+    });
     return () => { cancelled = true; };
   }, [connection]);
 

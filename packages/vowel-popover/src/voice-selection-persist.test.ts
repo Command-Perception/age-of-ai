@@ -3,22 +3,36 @@ import { createVoiceSettings } from "./voice-settings-store";
 
 afterEach(() => vi.unstubAllGlobals());
 
-it("keeps the browser-pinned default voice across refresh, overriding an older profile pin", () => {
+it("remembers an unpinned profile's selection without turning it into a profile pin", () => {
   const storage = new Map<string, string>();
-  vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) });
+  vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) });
   const config = { baseURL: "https://example.test", apiKey: "test" };
   const voice = { id: "nari:claire", name: "Claire", detail: "en · american · female" };
-  const store = createVoiceSettings(config, { id: "p1", created_at: 0, voice: "claire" });
+  const store = createVoiceSettings(config, { id: "p1", created_at: 0 });
   store.selectVoice(voice);
-  // The full option is persisted, so the refreshed page shows the same name.
+  expect(store.getSnapshot().voice).toEqual(voice);
   expect(storage.get("vowel.voice:https://example.test:voice:p1")).toBe(JSON.stringify(voice));
-  const restored = createVoiceSettings(config, { id: "p1", created_at: 0, voice: "claire" });
-  expect(restored.getSnapshot().voice).toMatchObject({ id: "nari:claire", name: "Claire" });
-  // Choosing "provider default" clears the override and falls back to the profile pin.
-  restored.selectVoice(null);
-  expect(restored.getSnapshot().voice).toBe(null);
-  expect(storage.get("vowel.voice:https://example.test:voice:p1")).toBe("");
-  expect(createVoiceSettings(config, { id: "p1", created_at: 0, voice: "claire" }).getSnapshot().voice)
-    .toMatchObject({ detail: "Pinned by this profile" });
-  expect(createVoiceSettings(config, { id: "p1", created_at: 0 }).getSnapshot().voice).toBe(null);
+  const restored = createVoiceSettings(config, { id: "p1", created_at: 0 });
+  expect(restored.getSnapshot().profile.voice).toBeUndefined();
+  expect(restored.getSnapshot().voice).toEqual(voice);
+});
+
+it("treats a profile-pinned voice as authoritative and read-only", async () => {
+  const storage = new Map<string, string>();
+  const override = { id: "nari:claire", name: "Claire", detail: "en · american · female" };
+  storage.set("vowel.voice:https://example.test:voice:p1", JSON.stringify(override));
+  vi.stubGlobal("localStorage", { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) });
+  const store = createVoiceSettings(
+    { baseURL: "https://example.test", apiKey: "test" },
+    { id: "p1", created_at: 0, voice: "fish:pinned" },
+  );
+
+  expect(store.getSnapshot()).toMatchObject({
+    voice: { id: "fish:pinned", detail: "Pinned by this profile" },
+    favorites: [],
+  });
+  store.selectVoice(override);
+  store.toggleFavorite(override);
+  expect(store.getSnapshot()).toMatchObject({ voice: { id: "fish:pinned" }, favorites: [] });
+  await expect(store.listVoices("", 1)).resolves.toMatchObject({ data: [], hasMore: false });
 });

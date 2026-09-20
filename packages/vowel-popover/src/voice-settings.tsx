@@ -5,11 +5,13 @@ import { Button } from "./components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "./components/ui/command";
 import { Field, FieldGroup, FieldLabel } from "./components/ui/field";
+import { InlineError } from "./components/inline-error";
 import type { RecordItem } from "./host/control-plane";
 import type { VoiceOption, VoiceSettingsStore } from "./voice-settings-store";
 
 export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }: { readonly store: VoiceSettingsStore; readonly onProfileChange: () => void; readonly profileLocked?: boolean }) => {
   const { profile, voice, favorites } = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const voicePinned = typeof profile.voice === "string" && profile.voice.length > 0;
   const [profiles, setProfiles] = useState<RecordItem[]>([]);
   const [profileError, setProfileError] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
@@ -74,11 +76,18 @@ export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }:
       // back to the catalog's first entry so profile-scoped queries resolve.
       if (data.length > 0 && !data.some((item) => item.id === store.getSnapshot().profile.id))
         store.selectProfile(data[0]!);
-    }).catch(() => { if (!disposed) setProfileError("Could not load session profiles."); });
+    }).catch((cause: unknown) => { if (!disposed) setProfileError(cause instanceof Error ? cause.message : "Could not load session profiles."); });
     return () => { disposed = true; };
   }, [store, retry]);
 
   useEffect(() => {
+    if (voicePinned) {
+      setVoices([]);
+      setLoading(false);
+      setError("");
+      setHasMore(false);
+      return;
+    }
     const controller = new AbortController();
     setLoading(true);
     setError("");
@@ -89,14 +98,14 @@ export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }:
         setProvider(result.provider);
         setHasMore(result.hasMore);
         setLoading(false);
-      }).catch(() => {
+      }).catch((cause: unknown) => {
         if (controller.signal.aborted) return;
-        setError("Could not load voices. Try again.");
+        setError(cause instanceof Error ? cause.message : "Could not load voices. Try again.");
         setLoading(false);
       });
     }, 250);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [store, profile.id, query, page, retry]);
+  }, [store, profile.id, voicePinned, query, page, retry]);
 
   const favoriteCompatible = (item: VoiceOption) =>
     !provider || (provider === "Fish Audio" ? item.id.startsWith("fish:") : provider === "Deepgram" ? item.id.startsWith("deepgram:") : provider === "Cloudflare Aura-2" ? item.id.startsWith("aura:") : true);
@@ -139,12 +148,18 @@ export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }:
             </PopoverContent>
           </Popover>
           )}
-          {!profileLocked && profileError && <Button variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry profiles</Button>}
-          {profileLocked && profileError && <span className="p-2 text-sm text-muted-foreground" role="status">{profileError}</span>}
+          {profileError && <InlineError message={profileError}><Button variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button></InlineError>}
         </Field>
         <Field>
           <FieldLabel>Voice</FieldLabel>
-          <div className="flex items-center gap-2">
+          {voicePinned ? (
+            <span role="status" aria-label="Voice (fixed by the session profile)" className="flex min-h-9 w-full items-center justify-between gap-2 rounded-[6px] border bg-transparent px-3 py-2 opacity-70">
+              <span className="truncate">{voice?.name || profile.voice}</span>
+              <Lock className="size-4 shrink-0" />
+            </span>
+          ) : (
+          <>
+            <div className="flex items-center gap-2">
           <Button variant="outline" size="icon" disabled={!voice} aria-label={favorites.some((item) => item.id === voice?.id) ? "Remove selected voice from favorites" : "Favorite selected voice"} aria-pressed={favorites.some((item) => item.id === voice?.id)} onClick={() => { if (voice) store.toggleFavorite(voice); }}>
             <Star fill={favorites.some((item) => item.id === voice?.id) ? "currentColor" : "none"} />
           </Button>
@@ -166,7 +181,7 @@ export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }:
                     </CommandItem>)}
                   </CommandGroup>
                   {loading && <p role="status" className="p-3 text-sm text-muted-foreground">Loading voices…</p>}
-                  {error && <div role="alert" className="p-3 text-sm">{error}<Button variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button></div>}
+                  {error && <InlineError className="m-2" message={error}><Button variant="ghost" size="sm" onClick={() => setRetry((value) => value + 1)}>Retry</Button></InlineError>}
                   {!loading && !error && voices.length === 0 && <p className="p-3 text-sm text-muted-foreground">No voices found.</p>}
                   {hasMore && !loading && !error && <Button variant="ghost" className="w-full" onClick={() => setPage((value) => value + 1)}>Load more voices</Button>}
                 </CommandList>
@@ -179,8 +194,11 @@ export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }:
 
           </div>
           {previewState === "loading" && <p role="status" className="text-xs text-muted-foreground">Preparing voice preview…</p>}
-          {previewError && <p role="alert" className="text-xs text-destructive">{previewError}</p>}
+          {previewError && <InlineError message={previewError} />}
+          </>
+          )}
         </Field>
+        {!voicePinned && (
         <details className="group rounded-md border">
           <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md p-3 text-sm font-medium focus-ring [&::-webkit-details-marker]:hidden">
             <ChevronRight className="size-4 transition-transform group-open:rotate-90" />Favorites <span className="text-muted-foreground">({favorites.length})</span>
@@ -196,6 +214,7 @@ export const VoiceSettings = ({ store, onProfileChange, profileLocked = false }:
             </div>)}
           </div>
         </details>
+        )}
       </FieldGroup>
     </div>
   );

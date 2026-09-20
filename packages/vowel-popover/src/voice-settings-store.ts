@@ -70,26 +70,24 @@ export const createVoiceSettings = (config: Config, initialProfile: RecordItem) 
   const writeFavorites = (provider: string, favorites: ReadonlyArray<VoiceOption>) => {
     try { localStorage.setItem(favoritesKey(provider), JSON.stringify(favorites)); } catch { /* Keep working when storage is disabled. */ }
   };
-  const voiceOverrideKey = (profileId: string) => `vowel.voice:${config.baseURL}:voice:${profileId}`;
-  /** Latest client selection wins; a profile pin applies only without a browser override. */
+  const voicePreferenceKey = (profileId: string) => `vowel.voice:${config.baseURL}:voice:${profileId}`;
   const resolvedVoice = (profile: RecordItem): VoiceOption | null => {
+    const pinned = profileVoice(profile);
+    if (pinned !== null) return pinned;
     try {
-      const raw = localStorage.getItem(voiceOverrideKey(profile.id));
-      if (typeof raw === "string" && raw.length > 0) {
-        const pinned = raw.startsWith("{") ? JSON.parse(raw) : null;
-        if (pinned !== null && typeof pinned === "object" && typeof pinned.id === "string" && typeof pinned.name === "string" && typeof pinned.detail === "string")
-          return { id: pinned.id, name: pinned.name, detail: pinned.detail };
-        // Older records stored the bare voice id.
-        return { id: raw, name: raw, detail: "Pinned by this browser" };
-      }
-    } catch { /* Storage may be disabled. */ }
-    return profileVoice(profile);
+      const raw = localStorage.getItem(voicePreferenceKey(profile.id));
+      if (!raw) return null;
+      const stored: unknown = JSON.parse(raw);
+      return stored !== null && typeof stored === "object" && typeof (stored as VoiceOption).id === "string" && typeof (stored as VoiceOption).name === "string" && typeof (stored as VoiceOption).detail === "string"
+        ? stored as VoiceOption
+        : null;
+    } catch { return null; }
   };
   let state = {
     profile: initialProfile,
     voice: resolvedVoice(initialProfile),
     provider: providerFromProfile(initialProfile),
-    favorites: readFavorites(providerFromProfile(initialProfile)),
+    favorites: profileVoice(initialProfile) === null ? readFavorites(providerFromProfile(initialProfile)) : [],
   };
   const listeners = new Set<() => void>();
   const notify = () => { for (const listener of listeners) listener(); };
@@ -99,15 +97,11 @@ export const createVoiceSettings = (config: Config, initialProfile: RecordItem) 
     selectProfile: (profile: RecordItem) => {
       let provider = providerFromProfile(profile);
       const voice = resolvedVoice(profile);
-      // A restored browser-pinned voice refines an "auto" provider like a live selection would.
-      if (provider === "auto" && voice !== null) {
-        const fromVoice = providerFromVoiceId(voice.id);
-        if (fromVoice) provider = fromVoice;
-      }
-      state = { profile, voice, provider, favorites: readFavorites(provider) };
+      state = { profile, voice, provider, favorites: profileVoice(profile) === null ? readFavorites(provider) : [] };
       notify();
     },
     selectVoice: (voice: VoiceOption | null) => {
+      if (profileVoice(state.profile) !== null) return;
       state = { ...state, voice };
       // An "auto" profile resolves its provider through the catalog; adopt the
       // selected voice's provider so subsequent favorites land in that bucket.
@@ -116,14 +110,13 @@ export const createVoiceSettings = (config: Config, initialProfile: RecordItem) 
         if (provider) state = { ...state, provider, favorites: readFavorites(provider) };
       }
       notify();
-      // Selection is a client-side override for profiles that do not pin a
-      // voice; persist it locally so the default survives a page refresh.
-      const overrideKey = `vowel.voice:${config.baseURL}:voice:${state.profile.id}`;
       try {
-        localStorage.setItem(overrideKey, voice ? JSON.stringify(voice) : "");
-      } catch { /* Storage may be disabled. */ }
+        if (voice === null) localStorage.removeItem(voicePreferenceKey(state.profile.id));
+        else localStorage.setItem(voicePreferenceKey(state.profile.id), JSON.stringify(voice));
+      } catch { /* Keep the current-session choice when storage is disabled. */ }
     },
     toggleFavorite: (voice: VoiceOption) => {
+      if (profileVoice(state.profile) !== null) return;
       const provider = favoritesBucket(state.provider, voice);
       const favorites = readFavorites(provider);
       const next = favorites.some((item) => item.id === voice.id)
@@ -137,17 +130,19 @@ export const createVoiceSettings = (config: Config, initialProfile: RecordItem) 
       method: "POST", signal, body: JSON.stringify({ profile_id: state.profile.id, voice: state.voice?.id ?? "" }),
     }),
     listProfiles: () => api<{ data: RecordItem[] }>(config, "/v1/session-profiles"),
-    listVoices: (query: string, page = 1, signal?: AbortSignal) => api<VoiceCatalog>(config,
-      `/v1/voices?${new URLSearchParams({ profile_id: state.profile.id, q: query, page: String(page) })}`,
-      signal ? { signal } : {},
-    ).then((result) => {
+    listVoices: (query: string, page = 1, signal?: AbortSignal) => profileVoice(state.profile) !== null
+      ? Promise.resolve({ data: [], hasMore: false, provider: state.provider })
+      : api<VoiceCatalog>(config,
+        `/v1/voices?${new URLSearchParams({ profile_id: state.profile.id, q: query, page: String(page) })}`,
+        signal ? { signal } : {},
+      ).then((result) => {
       // Adopt the catalog's provider when it refines the profile-level guess.
       if (result.provider && result.provider !== state.provider) {
         state = { ...state, provider: result.provider, favorites: readFavorites(result.provider) };
         notify();
       }
       return result;
-    }),
+      }),
   };
 };
 export type VoiceSettingsStore = ReturnType<typeof createVoiceSettings>;
