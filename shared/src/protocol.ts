@@ -84,7 +84,7 @@ export type ClientMessage =
   | { type: 'chat'; text: string }
   | { type: 'setPause'; paused: boolean } // pausar/despausar a partida (qualquer jogador, tecla P)
   | { type: 'ping'; x: number; y: number } // sinaliza um ponto no minimapa (só aliados veem)
-  | { type: 'cmd'; cmd: GameCommand };
+  | { type: 'cmd'; cmd: GameCommand; requestId?: string };
 
 // ---------- Servidor -> Cliente ----------
 
@@ -113,6 +113,7 @@ export interface RoomPlayer {
 }
 
 export type ServerMessage =
+  | { type: 'commandResult'; requestId: string; ok: boolean; tick: number; reason?: string }
   | { type: 'welcome'; playerId: number }
   | { type: 'nameOk' }              // nome aceito -> pode ir pro lobby
   | { type: 'nameTaken' }           // nome já em uso -> escolha outro

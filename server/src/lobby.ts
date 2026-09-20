@@ -841,10 +841,12 @@ export class Lobby {
   // ---------------- Comandos de jogo ----------------
 
   private cmd(conn: Connection, msg: Extract<ClientMessage, { type: 'cmd' }>): void {
-    if (!conn.roomId) return;
-    const room = this.rooms.get(conn.roomId);
-    if (!room || !room.inGame || !room.game) return;
-    room.game.enqueueCommand(conn.id, msg.cmd);
+    const room = conn.roomId ? this.rooms.get(conn.roomId) : undefined;
+    if (!room || !room.inGame || !room.game) {
+      if (typeof msg.requestId === 'string' && msg.requestId.length <= 100) conn.send({ type: 'commandResult', requestId: msg.requestId, ok: false, tick: -1, reason: 'No active game for this player.' });
+      return;
+    }
+    room.game.enqueueCommand(conn.id, msg.cmd, msg.requestId);
   }
 
   /** Pausar/retomar a partida (qualquer jogador da sala). */

@@ -245,6 +245,10 @@ export class GameInput {
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    const target = e.target;
+    // Vowel, Options and chat inputs own their keystrokes. Typing a command
+    // must never pause the match, delete a selection or open the game chat.
+    if (e.defaultPrevented || target instanceof HTMLElement && (target.isContentEditable || !!target.closest('input, textarea, select, [contenteditable="true"], #vowel-root, .overlay:not(.hidden)'))) return;
     if (this.deps.isChatOpen()) return;
     if (e.key === 'Enter') {
       e.preventDefault();

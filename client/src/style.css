@@ -222,14 +222,14 @@ input.txt:focus { border-color: var(--gold); }
 
 .opt-card { width: 430px; gap: 14px; }
 .opt-tabs {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.5fr); gap: 4px;
   padding: 4px; border: 1px solid var(--border-dim); border-radius: 6px;
   background: rgba(10, 7, 4, 0.42);
 }
 .opt-tab {
-  padding: 8px 12px; border: 1px solid transparent; border-radius: 4px;
+  padding: 8px 5px; border: 1px solid transparent; border-radius: 4px;
   background: transparent; color: var(--muted); cursor: pointer;
-  font: inherit; font-variant: small-caps; letter-spacing: 0.08em;
+  font: inherit; font-size: 14px; font-variant: small-caps; letter-spacing: 0.03em;
 }
 .opt-tab:hover { color: var(--gold-bright); }
 .opt-tab.active {
@@ -238,6 +238,13 @@ input.txt:focus { border-color: var(--gold); }
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .opt-tab-panel { display: flex; flex-direction: column; gap: 14px; }
+.announcement-settings { max-height: min(60vh, 600px); overflow-y: auto; padding: 2px 8px 8px 2px; gap: 10px; }
+.announcement-settings .opt-label { width: auto; flex: 1; font-size: 13px; text-align: left; }
+.announcement-settings h3 { color: var(--gold-bright); font-size: 14px; margin: 10px 0 2px; }
+.announcement-settings input[type="checkbox"] { accent-color: var(--gold); width: 17px; height: 17px; flex: none; }
+.announcement-settings .txt { padding: 5px; font-size: 12px; }
+.announcement-active p { margin: 3px 0; font-size: 13px; }
+.announcement-settings .vowel-settings-actions { flex-wrap: wrap; }
 .opt-row { display: flex; align-items: center; gap: 12px; }
 .opt-label { color: var(--text); font-size: 14.5px; width: 70px; flex: none; }
 .opt-pct { color: var(--muted); font-size: 13px; width: 42px; text-align: right; font-variant-numeric: tabular-nums; }

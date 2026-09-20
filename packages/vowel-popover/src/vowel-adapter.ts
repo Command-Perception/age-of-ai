@@ -166,6 +166,7 @@ export class VowelRealtimeAdapter implements RealtimeVoiceAdapter {
       let responseOpen = false;
       let sessionReady = false;
       let toolCatalogRequested = false;
+      let observerConnected = false;
       let tornDown = false;
       let failure: Error | undefined;
       let assistantText = "";
@@ -198,6 +199,7 @@ export class VowelRealtimeAdapter implements RealtimeVoiceAdapter {
       const teardown = () => {
         if (tornDown) return;
         tornDown = true;
+        if (observerConnected) { observerConnected = false; api.sessionObserver?.disconnected(); }
         sessionReady = false;
         captureController.abort();
         inputSender.close();
@@ -243,6 +245,7 @@ export class VowelRealtimeAdapter implements RealtimeVoiceAdapter {
               timeline.start();
               inputSender.beginTurn();
               socket.send(JSON.stringify({ type: "vowel.input.speech", active: true }));
+              api.sessionObserver?.event({ type: 'vowel.input.speech', active: true });
               timeline.event("user.speech_start", { detector: "Silero v5" }, undefined, true);
             }
             if (result.ended) {
@@ -258,6 +261,7 @@ export class VowelRealtimeAdapter implements RealtimeVoiceAdapter {
                 inputSender.send({ type: "input_audio_buffer.commit" });
               }
               inputSender.send({ type: "vowel.input.speech", active: false });
+              api.sessionObserver?.event({ type: 'vowel.input.speech', active: false });
               inputSender.send({ type: "vowel.audio.idle" });
             }
             return;
@@ -330,6 +334,8 @@ export class VowelRealtimeAdapter implements RealtimeVoiceAdapter {
         sessionReady = true;
         if (toolCatalogRequested) return;
         toolCatalogRequested = true;
+        observerConnected = true;
+        api.sessionObserver?.connected();
         void Promise.all([api.voiceTools(), capturePromise])
           .then(([tools]) => {
             if (socket?.readyState !== this.runtime.socketOpenState) return;
@@ -368,6 +374,7 @@ export class VowelRealtimeAdapter implements RealtimeVoiceAdapter {
         if (tornDown || helpers.isDisposed()) return;
         const data = parseVowelJson((event as MessageEvent).data);
         if (!data) return;
+        api.sessionObserver?.event(data);
         if (data.type === "session.created") {
           const settings = data["session"];
           clientVad = typeof settings === "object" && settings !== null && "turn_detection" in settings && settings.turn_detection === null;

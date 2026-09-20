@@ -72,10 +72,12 @@ import { DIFFICULTY, runBotAI } from './ai';
 import { generateMap } from './mapgen';
 import { collectSpreadTiles, findPath, idx, isWalkable, nearestWalkableTile, ringTiles, type Grid } from './path';
 import { createUnit, type Building, type GamePlayer, type ResNode, type Sheep, type Unit } from './state';
+import { isGameCommand } from '@age/shared';
 
 interface QueuedCmd {
   playerId: number;
   cmd: GameCommand;
+  requestId?: string;
 }
 
 export interface RoomMember {
@@ -103,6 +105,8 @@ export class Game {
   private tick = 0;
   private paused = false;
   private queue: QueuedCmd[] = [];
+  private commandError: string | undefined;
+  private commandResults = new Map<string, Extract<ServerMessage, { type: 'commandResult' }>>();
   /** Última vez que a BASE (prédio) de cada jogador levou dano — p/ aliados protetores. */
   readonly recentAttacks = new Map<number, { x: number; y: number; tick: number }>();
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -197,13 +201,41 @@ export class Game {
     this.timer = null;
   }
 
-  enqueueCommand(playerId: number, cmd: GameCommand): void {
+  enqueueCommand(playerId: number, cmd: GameCommand, requestId?: string): void {
+    if (requestId !== undefined && (typeof requestId !== 'string' || requestId.length > 100)) return;
+    if (!isGameCommand(cmd, this.map.size)) {
+      if (requestId) this.commandReply(playerId, requestId, false, 'Malformed or unsupported game command.');
+      return;
+    }
+    if (requestId) {
+      const prior = this.commandResults.get(`${playerId}:${requestId}`);
+      if (prior) { this.send(playerId, prior); return; }
+      if (this.queue.some(q => q.playerId === playerId && q.requestId === requestId)) return;
+      if (this.ended || this.paused || this.spectators.has(playerId) || !this.players.has(playerId) || this.players.get(playerId)?.defeated) {
+        this.commandReply(playerId, requestId, false, 'The game is paused, finished, or this player cannot issue orders.'); return;
+      }
+      if (this.queue.filter(q => q.playerId === playerId).length >= 32) { this.commandReply(playerId, requestId, false, 'Too many pending orders.'); return; }
+    }
     // Espectador não joga. Na prática os comandos dele já morreriam sozinhos
     // (não é dono de nada, e `ownedUnits` devolveria lista vazia), mas a trava é
     // explícita: assim ninguém precisa AUDITAR cada comando novo pra saber se
     // vazou algum caminho que não checa posse.
     if (this.spectators.has(playerId)) return;
-    this.queue.push({ playerId, cmd });
+    this.queue.push({ playerId, cmd, requestId });
+  }
+
+  private commandReply(playerId: number, requestId: string, ok: boolean, reason?: string): void {
+    const result: Extract<ServerMessage, { type: 'commandResult' }> = { type: 'commandResult', requestId, ok, tick: this.tick, ...(reason ? { reason } : {}) };
+    this.commandResults.set(`${playerId}:${requestId}`, result);
+    if (this.commandResults.size > 256) this.commandResults.delete(this.commandResults.keys().next().value!);
+    this.send(playerId, result);
+  }
+
+  /** Only used for infrequent acknowledged orders; captures authoritative mutations,
+   * including queues/resources, rather than equating websocket delivery with execution. */
+  private commandState(playerId: number): string {
+    const player = this.players.get(playerId);
+    return JSON.stringify([player, [...(player?.techs ?? [])], [...this.units.values()].filter(u => u.owner === playerId), [...this.buildings.values()].filter(b => b.owner === playerId), [...this.sheep.values()].filter(s => s.owner === playerId)]);
   }
 
   /** true se os dois jogadores são ALIADOS (mesmo jogador, ou mesmo time > 0).
@@ -276,6 +308,7 @@ export class Game {
   }
 
   private errorTo(playerId: number, code: string, params?: Record<string, string | number>): void {
+    this.commandError = `${code}${params ? ` ${JSON.stringify(params)}` : ''}`;
     this.send(playerId, { type: 'error', code, params });
   }
 
@@ -502,12 +535,31 @@ export class Game {
   private applyQueuedCommands(): void {
     const cmds = this.queue;
     this.queue = [];
-    for (const { playerId, cmd } of cmds) {
+    for (const { playerId, cmd, requestId } of cmds) {
       const p = this.players.get(playerId);
-      if (!p || p.defeated) continue;
+      if (!p || p.defeated || this.ended) {
+        if (requestId) this.commandReply(playerId, requestId, false, 'The player or match is no longer active.');
+        continue;
+      }
       try {
+        this.commandError = undefined;
+        if (requestId) {
+          const ids = 'unitIds' in cmd ? cmd.unitIds : cmd.kind === 'delete' ? cmd.ids : [];
+          if (ids.some(id => (this.units.get(id) ?? this.buildings.get(id) ?? this.sheep.get(id))?.owner !== playerId)) {
+            this.commandReply(playerId, requestId, false, 'Every commanded object must still be owned by this player.'); continue;
+          }
+          if ('buildingId' in cmd && (this.buildings.get(cmd.buildingId) ?? (cmd.kind === 'unload' ? this.units.get(cmd.buildingId) : undefined))?.owner !== playerId) {
+            this.commandReply(playerId, requestId, false, 'The referenced building is not owned by this player.'); continue;
+          }
+        }
+        const before = requestId ? this.commandState(playerId) : '';
         this.applyCommand(playerId, cmd);
+        if (requestId) {
+          const changed = before !== this.commandState(playerId);
+          this.commandReply(playerId, requestId, changed && !this.commandError, this.commandError ?? (changed ? undefined : 'No change: the order is invalid, unavailable, or already satisfied.'));
+        }
       } catch (err) {
+        if (requestId) this.commandReply(playerId, requestId, false, 'Invalid command.');
         console.error('[room] erro aplicando comando', cmd.kind, err);
       }
     }

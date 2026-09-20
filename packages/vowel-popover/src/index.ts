@@ -6,4 +6,6 @@ export { useMicLiveFlag } from "./microphone";
 export { TelemetryPage } from "./telemetry-page";
 export { toTraceFilter } from "./telemetry";
 export type { VoiceApi } from "./api";
+export type { VoiceTool, ToolResult } from './domain';
+export { recordTraceEvent } from './telemetry';
 export { HumanToolUIs } from "./voice-panel";

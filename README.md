@@ -32,6 +32,50 @@ Windows shortcut: double-click **`iniciar.bat`** — it installs dependencies (f
 
 Open `http://localhost:5199` in **two or more tabs/machines** (2 players minimum) — or play solo against a **bot** (add an AI opponent in the room). Create a room, mark yourself "Ready", and the host starts the match.
 
+## Conversational gameplay with Vowel
+
+Implementation guides: [Vowel conversation and announcements](VOWEL.md) ·
+[Jev decision interpretation](JEV.md).
+
+In **Options → Vowel**, connect an origin-authorized Vowel client key bound to a
+working session profile. The key stays in tab-scoped session storage. Vowel must
+have usable provider credentials and an active billing configuration. Use a
+background/async execution profile for proactive announcements; ordinary game
+controls do not depend on Vowel.
+
+The matching Vowel backend includes the registered `game-monitor` agent and
+origin-authorized `/v1/inference/decisions`. An older backend does not provide
+the complete integration. Browser clients never receive model-provider keys.
+
+- Give explicit orders such as “send two idle villagers to wood” or “train one
+  villager.” For placement, say “build a house near the town center,” point at a
+  map tile, or provide coordinates. Ambiguous references ask for clarification.
+- Ask about resources, selected units, idle workers, the army, buildings,
+  research, age advancement, or available actions. Queries respect fog of war.
+- Follow-up requests reuse the last successfully acknowledged order. Multi-action
+  requests are preflighted as a plan and executed in order; a rejection stops the
+  rest. A network timeout is an unknown outcome and is never automatically retried.
+- **Options → Announcements** contains all category switches, live conditions,
+  thresholds, advisor frequency, temporary mute, and urgent-warning override.
+  Voice preference edits and these controls use the same player-local store.
+
+Semantic commands use constrained Vowel decisions, deterministic planning and
+authoritative server validation. Set `VITE_GAME_COMMAND_CONFIDENCE_THRESHOLD`
+before building to change the default `0.70` minimum confidence. Failed or
+low-confidence interpretation never issues an order. New player speech cancels
+unissued work; it cannot undo orders the server has already accepted.
+
+The session-long monitor consumes bounded semantic events through Vowel client
+tools. Strategic reasoning has no game-mutation tools. Vowel's foreground
+coordinator alone chooses speech, and candidates are revalidated at delivery.
+Preferences, cooldowns, hysteresis, expiration, deduplication and mute are applied
+before reporting and again before delivery. Decision and notification traces
+appear in the existing Vowel telemetry panel.
+
+Verification for this integration uses `npm run typecheck`, `npm run build`,
+code inspection and direct application use. Do not create or run automated tests
+for this implementation unless explicitly requested.
+
 ## Hosting over the internet
 
 You can expose the game publicly with a Cloudflare Tunnel (HTTPS, no need to open a port on your router). There are two ways:

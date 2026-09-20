@@ -47,6 +47,7 @@ export const vowelChatModel = (api: VoiceApi): ChatModelAdapter => ({
     const finalDeliveries = new Map<string, ReadonlyArray<string>>();
     let coordinatorKnown = false;
     let coordinatorIdle = false;
+    let observerConnected = false;
     const changed = () => { revision++; wake?.(); };
     const finish = (error?: Error) => {
       if (finished) return;
@@ -70,6 +71,8 @@ export const vowelChatModel = (api: VoiceApi): ChatModelAdapter => ({
     abortSignal.addEventListener("abort", abort, { once: true });
     socket.addEventListener("open", () => {
       if (finished) return;
+      observerConnected = true;
+      api.sessionObserver?.connected();
       socket.send(JSON.stringify({ type: "session.update", session: { ...VOICE_TEST_INSTRUCTIONS, ...api.sessionInstructions, initial_actions_prompt: "", modalities: ["text"], tools, tool_choice: "auto" } }));
       if (files.length) {
         socket.send(JSON.stringify({ type: "vowel.input.attachments", attachments: files.map(attachmentInput) }));
@@ -81,6 +84,7 @@ export const vowelChatModel = (api: VoiceApi): ChatModelAdapter => ({
     socket.addEventListener("message", (event) => {
       if (finished) return;
       const data = parseVowelJson(event.data);
+      if (data) api.sessionObserver?.event(data);
       if (!data || applyServerTrace(data)) return;
       if (data.type === "vowel.worker.status" && typeof data["job_id"] === "string") {
         if (data["status"] === "cancelled") backgroundJobs.delete(data["job_id"]);
@@ -148,6 +152,7 @@ export const vowelChatModel = (api: VoiceApi): ChatModelAdapter => ({
         yield { content: [{ type: "text", text: text || "(no response)" }] };
       }
     } finally {
+      if (observerConnected) api.sessionObserver?.disconnected();
       clearTimeout(timeout);
       abortSignal.removeEventListener("abort", abort);
       socket.close(1000, "finished");

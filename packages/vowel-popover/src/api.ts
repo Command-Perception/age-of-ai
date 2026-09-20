@@ -64,4 +64,9 @@ export const createVoiceApi = (
   },
 };
 };
-export type VoiceApi = Omit<ReturnType<typeof createVoiceApi>, "settings" | "avatarDirector" | "sessionInstructions"> & { readonly sessionInstructions?: VoiceInstructions; readonly settings?: VoiceSettingsStore; readonly avatarDirector?: (() => AvatarDirectorClient) | undefined; readonly profileLocked?: boolean };
+export interface VoiceSessionObserver {
+  connected(): void;
+  disconnected(): void;
+  event(event: Readonly<Record<string, unknown>>): void;
+}
+export type VoiceApi = Omit<ReturnType<typeof createVoiceApi>, "settings" | "avatarDirector" | "sessionInstructions"> & { readonly sessionObserver?: VoiceSessionObserver; readonly sessionInstructions?: VoiceInstructions; readonly settings?: VoiceSettingsStore; readonly avatarDirector?: (() => AvatarDirectorClient) | undefined; readonly profileLocked?: boolean };

@@ -2,6 +2,7 @@ import { VowelOverlay, createVoiceApi, type VoiceApi } from '@vowel/vowel-popove
 import { Tooltip as RadixTooltip } from 'radix-ui';
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { withGameVoice } from './game/vowel-game-api';
 
 export interface VowelConnection {
   readonly apiKey: string;
@@ -498,8 +499,8 @@ function VowelMount() {
 
   const api = useMemo(() => {
     if (!connection) return null;
-    if (connection.kind === 'client') return createClientVoiceApi(connection);
-    return createVoiceApi(
+    if (connection.kind === 'client') return withGameVoice(createClientVoiceApi(connection), connection);
+    return withGameVoice(createVoiceApi(
       { apiKey: connection.apiKey, baseURL: connection.baseURL },
       {
         id: connection.profileId,
@@ -509,7 +510,7 @@ function VowelMount() {
       },
       {},
       'age-of-ai',
-    );
+    ), connection);
   }, [connection]);
 
   if (!connection || !api || !activeScreen) return null;

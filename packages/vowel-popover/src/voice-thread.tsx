@@ -19,8 +19,10 @@ const OverlayMessage = () => {
   return (
     <MessagePrimitive.Root
       className={cn(
-        "max-w-[85%] rounded-[8px] px-3 py-1.5 text-[13px]",
-        isUser ? "self-end bg-[var(--subtle)] text-[var(--foreground)]" : "self-start shadow-border text-[var(--foreground)]",
+        "vowel-message max-w-[85%] rounded-[8px] px-3 py-1.5 text-[13px]",
+        isUser
+          ? "vowel-message--user self-end bg-[var(--subtle)] text-[var(--foreground)]"
+          : "vowel-message--assistant self-start text-[var(--foreground)]",
       )}
     >
       {attachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{attachments.map(attachment => <AttachmentPreview key={attachment.id} attachment={attachment} />)}</div>}
@@ -50,8 +52,10 @@ const FrozenMessage = ({ turn }: { readonly turn: FrozenTurn }) => {
   return (
     <div
       className={cn(
-        "max-w-[85%] rounded-[8px] px-3 py-1.5 text-[13px]",
-        isUser ? "self-end bg-[var(--subtle)] text-[var(--foreground)]" : "self-start shadow-border text-[var(--foreground)]",
+        "vowel-message max-w-[85%] rounded-[8px] px-3 py-1.5 text-[13px]",
+        isUser
+          ? "vowel-message--user self-end bg-[var(--subtle)] text-[var(--foreground)]"
+          : "vowel-message--assistant self-start text-[var(--foreground)]",
       )}
     >
       {turn.reasoning && <p className="text-[11px] italic text-[var(--muted-foreground)]">thinking…</p>}
@@ -89,7 +93,7 @@ export const VoiceThread = ({ attachments, frozen }: {
     <ThreadPrimitive.Viewport ref={viewport} className="voice-thread-viewport min-h-0 flex-1 max-h-[min(20rem,45dvh)] overflow-y-auto px-3 py-2">
       <div className="flex flex-col gap-2">
         {showFrozen && frozen !== undefined && (
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-2">
             {frozen.map(turn => <FrozenMessage key={turn.id} turn={turn} />)}
           </div>
         )}

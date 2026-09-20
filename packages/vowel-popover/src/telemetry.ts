@@ -245,18 +245,19 @@ export const applyServerTrace = (value: unknown): boolean => {
 const appendEvent = (turn: TraceTurn, event: Omit<TraceEvent, "at">, at = performance.now()): TraceTurn => {
   const previous = turn.events.at(-1);
   if (previous?.label === event.label && previous?.detail === event.detail) return turn;
-  return { ...turn, events: [...turn.events, { ...event, at }] };
+  return { ...turn, events: [...turn.events.slice(-511), { ...event, at }] };
 };
 
-export const recordTraceEvent = (phase: TracePhase, label: string, detail?: string, turnId?: string): void => {
+export const recordTraceEvent = (phase: TracePhase, label: string, detail?: string, turnId?: string, durationMs?: number): void => {
   const targetId = turnId ?? activeTurnId;
   const target = targetId ? turns.find((turn) => turn.id === targetId) : turns.at(-1);
-  const event = { label, phase, ...(detail ? { detail } : {}) };
+  const duration = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : undefined;
+  const event = { label, phase, ...(detail ? { detail } : {}), ...(duration === undefined ? {} : { durationMs: duration }) };
+  const at = performance.now() - (duration ?? 0);
   if (target) {
-    turns = turns.map((turn) => (turn.id === target.id ? appendEvent(turn, event) : turn));
+    turns = turns.map((turn) => (turn.id === target.id ? appendEvent(turn, event, at) : turn));
   } else {
     const id = crypto.randomUUID();
-    const at = performance.now();
     activeTurnId = id;
     turns = [...turns.slice(-MAX_TURNS), { id, input: "", startedAt: at, events: [{ ...event, at }], ...(sessionId ? { sessionId } : {}) }];
   }

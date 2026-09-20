@@ -2,6 +2,7 @@
 
 import type { GameCommand, RoomPlayer, ServerMessage } from '@age/shared';
 import { Net } from './net';
+import { attachGameVoice, currentGameVoice, detachGameVoice } from './game/voice-bridge';
 import { music } from './music';
 import { toast } from './ui';
 import { settings, saveSettings } from './settings';
@@ -40,6 +41,7 @@ let lastRoomPlayers: RoomPlayer[] = [];
 let pendingName = ''; // nome sendo confirmado (salvo no localStorage quando o servidor aceita)
 
 let gameScreen: GameScreen | null = null;
+let gameEnded = false;
 let gamePaused = false; // partida pausada (autoritativo do servidor); tecla P alterna
 // Ao cair em jogo, espera uns segundos antes de mostrar "conexão perdida" — um
 // soluço rápido de rede reconecta sozinho e o jogador nem percebe. O gameStart
@@ -309,6 +311,7 @@ function dispatch(msg: ServerMessage): void {
       teardownGame();
       gameOverScreen.hide();
       gamePaused = false;
+      gameEnded = false;
       gameScreen = new GameScreen(msg.map, msg.players, msg.you, {
         onCommand: (cmd: GameCommand) => net.send({ type: 'cmd', cmd }),
         onChat: (text) => net.send({ type: 'chat', text }),
@@ -321,6 +324,8 @@ function dispatch(msg: ServerMessage): void {
           net.send({ type: 'listRooms' });
         },
       }, msg.fog, msg.spectating);
+      const voiceScreen = gameScreen;
+      attachGameVoice(voiceScreen.state, () => ({ ...voiceScreen.voiceInteraction(), paused: gamePaused, ended: gameEnded, connected: net.isOpen }), (command, signal) => net.command(command, signal));
       showScreen('game');
       break;
     }
@@ -339,6 +344,7 @@ function dispatch(msg: ServerMessage): void {
     }
     case 'gamePaused': {
       gamePaused = msg.paused;
+      currentGameVoice()?.snapshot();
       gameScreen?.setPaused(msg.paused, msg.by);
       break;
     }
@@ -358,6 +364,7 @@ function dispatch(msg: ServerMessage): void {
           market: msg.market,
           spectators: msg.spectators,
         });
+        currentGameVoice()?.snapshot();
       }
       break;
     }
@@ -366,6 +373,8 @@ function dispatch(msg: ServerMessage): void {
       // que chegue atrasado — senão abriria o overlay de fim por cima do lobby.
       if (current !== 'game') break;
       const youWon = msg.won ?? (msg.winner === myPlayerId);
+      gameEnded = true;
+      currentGameVoice()?.snapshot();
       gameScreen?.state.fog.revealAll(); // fim de jogo revela o mapa (estilo AoE)
       gameOverScreen.show(youWon, msg.winnerName);
       music.setState('end'); // música de fim de jogo
@@ -378,6 +387,7 @@ function dispatch(msg: ServerMessage): void {
 }
 
 function teardownGame(): void {
+  detachGameVoice();
   if (gameScreen) {
     gameScreen.destroy();
     gameScreen = null;

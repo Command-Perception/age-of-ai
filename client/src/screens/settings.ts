@@ -4,6 +4,7 @@
 import { el } from '../ui';
 import { settings, RENDER_SCALES, LANGS, type Lang } from '../settings';
 import { t } from '../i18n';
+import { announcementsPanel } from './announcements';
 import {
   DEFAULT_VOWEL_URL,
   VowelNetworkError,
@@ -49,7 +50,8 @@ export class SettingsOverlay {
   private canLeave = false;
   private leaveInGame = false;
   private confirming = false;
-  private activeTab: 'room' | 'vowel' = 'room';
+  private activeTab: 'room' | 'vowel' | 'announcements' = 'room';
+  private disposeAnnouncements?: () => void;
 
   constructor(private deps: SettingsDeps) {
     this.el = el('div', 'overlay hidden');
@@ -61,6 +63,7 @@ export class SettingsOverlay {
 
   /** Monta (ou remonta) o cartão de opções no idioma atual. */
   private buildCard(): HTMLElement {
+    this.disposeAnnouncements?.();
     this.scaleBtns = [];
     const card = el('div', 'panel card opt-card');
     card.appendChild(el('h2', '', t('opt.title')));
@@ -73,7 +76,9 @@ export class SettingsOverlay {
     vowelTab.type = 'button';
     roomTab.setAttribute('role', 'tab');
     vowelTab.setAttribute('role', 'tab');
-    tabs.append(roomTab, vowelTab);
+    const announcementsTab = el('button', 'opt-tab', 'Announcements');
+    announcementsTab.type = 'button'; announcementsTab.setAttribute('role', 'tab');
+    tabs.append(roomTab, vowelTab, announcementsTab);
     card.appendChild(tabs);
 
     const roomPanel = el('div', 'opt-tab-panel');
@@ -272,20 +277,26 @@ export class SettingsOverlay {
     vowelPanel.appendChild(vowelActions);
     vowelPanel.appendChild(el('p', 'vowel-secret-note', t('opt.vowel_session_note')));
 
-    const selectTab = (tab: 'room' | 'vowel') => {
+    const announcements = announcementsPanel();
+    this.disposeAnnouncements = announcements.dispose;
+    const selectTab = (tab: 'room' | 'vowel' | 'announcements') => {
       this.activeTab = tab;
       const roomActive = tab === 'room';
       roomTab.classList.toggle('active', roomActive);
-      vowelTab.classList.toggle('active', !roomActive);
+      vowelTab.classList.toggle('active', tab === 'vowel');
+      announcementsTab.classList.toggle('active', tab === 'announcements');
+      announcementsTab.setAttribute('aria-selected', String(tab === 'announcements'));
       roomTab.setAttribute('aria-selected', String(roomActive));
-      vowelTab.setAttribute('aria-selected', String(!roomActive));
+      vowelTab.setAttribute('aria-selected', String(tab === 'vowel'));
       roomPanel.classList.toggle('hidden', !roomActive);
-      vowelPanel.classList.toggle('hidden', roomActive);
+      vowelPanel.classList.toggle('hidden', tab !== 'vowel');
+      announcements.panel.classList.toggle('hidden', tab !== 'announcements');
     };
     roomTab.addEventListener('click', () => selectTab('room'));
     vowelTab.addEventListener('click', () => selectTab('vowel'));
+    announcementsTab.addEventListener('click', () => selectTab('announcements'));
     selectTab(this.activeTab);
-    card.append(roomPanel, vowelPanel);
+    card.append(roomPanel, vowelPanel, announcements.panel);
 
     const close = el('button', 'btn primary', t('opt.close'));
     close.addEventListener('click', () => this.hide());
@@ -334,7 +345,7 @@ export class SettingsOverlay {
     }
   }
 
-  show(tab?: 'room' | 'vowel'): void {
+  show(tab?: 'room' | 'vowel' | 'announcements'): void {
     if (tab && tab !== this.activeTab) {
       this.activeTab = tab;
       const fresh = this.buildCard();

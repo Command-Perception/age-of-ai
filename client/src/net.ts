@@ -2,7 +2,7 @@
 // envio tipado de ClientMessage e despacho de ServerMessage.
 // Mensagens desconhecidas ou malformadas são ignoradas silenciosamente.
 
-import type { ClientMessage, ServerMessage } from '@age/shared';
+import type { ClientMessage, ServerMessage, GameCommand } from '@age/shared';
 import { GAME_PORT } from '@age/shared';
 
 export type NetStatus = 'connecting' | 'open' | 'closed';
@@ -27,6 +27,25 @@ export class Net {
   private backoffMs = 500;
   private reconnectTimer: number | null = null;
   private stopped = false; // true após close() proposital (F5/pagehide): não reconecta
+  private pendingCommands = new Map<string, { resolve: (result: Extract<ServerMessage, { type: 'commandResult' }>) => void; timer: number }>();
+
+  command(cmd: GameCommand, signal?: AbortSignal): Promise<Extract<ServerMessage, { type: 'commandResult' }>> {
+    const requestId = crypto.randomUUID();
+    return new Promise(resolve => {
+      const finish = (result: Extract<ServerMessage, { type: 'commandResult' }>) => {
+        const pending = this.pendingCommands.get(requestId);
+        if (!pending) return;
+        clearTimeout(pending.timer); this.pendingCommands.delete(requestId);
+        signal?.removeEventListener('abort', abort); resolve(result);
+      };
+      const fail = (reason: string) => finish({ type: 'commandResult', requestId, ok: false, tick: -1, reason });
+      const abort = () => fail('Cancelled while awaiting the result; the order may already have executed. Do not retry automatically.');
+      this.pendingCommands.set(requestId, { resolve: finish, timer: window.setTimeout(() => fail('No acknowledgement received; execution is unknown. Do not retry automatically.'), 5000) });
+      if (signal?.aborted) { abort(); return; }
+      signal?.addEventListener('abort', abort, { once: true });
+      if (!this.send({ type: 'cmd', cmd, requestId })) fail('Game connection is unavailable; order was not sent.');
+    });
+  }
 
   get isOpen(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
@@ -66,6 +85,11 @@ export class Net {
       if (!data || typeof data !== 'object') return;
       const type = (data as { type?: unknown }).type;
       if (typeof type !== 'string') return;
+      if (type === 'commandResult') {
+        const result = data as Extract<ServerMessage, { type: 'commandResult' }>;
+        this.pendingCommands.get(result.requestId)?.resolve(result);
+        return;
+      }
       try {
         this.onMessage(data as ServerMessage);
       } catch (err) {
@@ -112,6 +136,7 @@ export class Net {
   }
 
   private emitStatus(status: NetStatus): void {
+    if (status === 'closed') for (const [requestId, pending] of this.pendingCommands) pending.resolve({ type: 'commandResult', requestId, ok: false, tick: -1, reason: 'Disconnected before acknowledgement; execution is unknown. Do not retry automatically.' });
     try {
       this.onStatus(status);
     } catch (err) {

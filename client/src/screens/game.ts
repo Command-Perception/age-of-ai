@@ -71,6 +71,16 @@ export class GameScreen {
    *  nunca esteve jogando.) */
   get isSpectating(): boolean { return this.spectating; }
 
+  /** Screen-space pointer is meaningful only over the unobstructed game canvas. */
+  voiceInteraction(): { pointer?: { x: number; y: number }; camera: { x: number; y: number } } {
+    const ui = this.input.ui;
+    const bounds = this.canvas.getBoundingClientRect();
+    const point = ui.hasMouse && document.elementFromPoint(ui.mouseX + bounds.left, ui.mouseY + bounds.top) === this.canvas
+      ? this.cam.screenToWorld(ui.mouseX, ui.mouseY) : undefined;
+    const pointer = point && point.x >= 0 && point.y >= 0 && point.x < this.state.map.size && point.y < this.state.map.size ? point : undefined;
+    return { pointer, camera: { x: this.cam.x, y: this.cam.y } };
+  }
+
   constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false) {
     this.spectating = spectating;
     // Espectador vê o mapa todo (é o ponto de assistir) — a névoa é desligada.
