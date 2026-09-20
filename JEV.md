@@ -55,8 +55,8 @@ not currently use.
 
 | Family | Narrow choices / resulting actions |
 | --- | --- |
-| `gather` | Resource, unit type/reference, quantity, source reference |
-| `build` | Building type, builders, placement reference |
+| `gather` | Resource, worker reference/role, quantity, source reference |
+| `build` | Building type/count, builders, placement reference |
 | `move` | Move versus rally point, units, destination |
 | `train` | Unit type and quantity |
 | `research` | Technology ID or advance age |
@@ -70,15 +70,33 @@ utterance and context do not safely resolve the choice.
 
 IDs, target selection, resource-source matching, training buildings, and legal
 placement are resolved in code. The model does not invent executable programs or
-send commands directly. Multi-action splitting is deterministic, limited to five
-clauses, with a bridge limit of 24 primitive orders. It is not an unrestricted
-natural-language program interpreter.
+send commands directly. A bounded outline identifies up to five ordered action
+slots; each slot then uses the normal family planner. Explicit gather destinations
+and build clauses are resolved per slot so a combined request such as “one worker
+to berries and one to sheep, then build a mining camp by the gold” does not ask
+the model to rediscover names already present in the utterance. The bridge limits
+the result to 24 primitive orders. This is not an unrestricted natural-language
+program interpreter.
 
 For a bare worker task such as “build a house” or “gather wood,” the planner
 deterministically assigns one available idle villager when no worker is named.
-Explicit references such as “those villagers,” “the selected worker,” a count,
-or a unit ID must still resolve confidently; they do not fall back to a different
-worker silently.
+A count such as “two villagers” allocates that many idle villagers without asking
+for identities. “From farming/food/wood/gold/stone” deliberately retasks workers
+from that current job. Explicitly selected villagers are also a deliberate
+reassignment and remain eligible while gathering, building, or moving; selection
+does not impose an idle requirement.
+
+When a gather resource is named without a particular object, the nearest eligible
+visible source is used. Named food sources such as berries, sheep, farms, and fish
+remain distinct. Pointing or selecting a resource disambiguates multiple sources
+of the same type.
+
+Build placement is similarly deterministic. An omitted location starts at the
+assigned villager and searches outward for the nearest legal footprint; the
+server moves the villager there and replaces its current task. Every owned
+building type can be a relative reference, such as “a house beside the barracks”
+or “a mill near the market.” The nearest visible owned building of that type is
+chosen relative to the selected tile, pointer, assigned builder, or camera.
 
 ## Context and references
 
@@ -91,10 +109,12 @@ worker silently.
 - Game-derived action availability, costs, and reasons actions are unavailable.
 
 The planner adds lightweight conversation memory: the last acknowledged command,
-referenced units/building/location, and a pending clarification. This supports
-follow-ups such as “another one” or “do the same with gold.” References are still
-checked against current state. A selection or pointer change during inference
-causes clarification rather than silently applying the interpretation elsewhere.
+referenced units/building/location, a pending clarification, and the latest
+delivered strategy proposal. This supports follow-ups such as “another one,” “do
+the same with gold,” or an affirmative response to a currently pending proposal.
+References are still checked against current state. A selection or pointer change
+during inference causes clarification rather than silently applying the
+interpretation elsewhere.
 
 Other players' private resources and technologies are not forwarded. Enemy
 information is filtered by visibility. The game does not send a screenshot or
@@ -189,9 +209,10 @@ mandatory even when the model is highly confident.
 
 The same decision client is used by
 [announcement-monitor.ts](client/src/game/announcement-monitor.ts) for advisory
-categories, resource-shortage alerts, and idle-military alerts. It asks whether
-the candidate is useful now or should stay silent, with current game context,
-preferences, recent announcements, and conversation-busy state.
+categories, resource-shortage alerts, idle-military alerts, and optional strategy
+proposals. It asks whether the candidate is useful now or should stay silent,
+with current game context, announcement and suggestion preferences, recent
+announcements, and conversation-busy state.
 
 Only an `announce` choice with confidence of at least **0.70** proceeds. This
 relevance cutoff is currently fixed separately from the configurable command
@@ -202,6 +223,12 @@ Strategic wording can then come from Vowel's separate background LLM. Jev does
 not write the final speech or control TTS. Candidates are revalidated after
 reasoning and again before delivery; a relevance decision is not a reservation
 to speak stale state. See [the notification flow](VOWEL.md#proactive-announcements).
+
+Strategy proposals are generated from player-visible state and the selected
+resources/military/technology/balanced/none bias. Jev may reject a low-value
+proposal, but it does not execute one. After Vowel delivers a proposal, only a
+clear affirmative response during its validity window substitutes the stored
+command back through the ordinary planner and server-validation path.
 
 ## Backend configuration and ownership
 

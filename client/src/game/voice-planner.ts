@@ -19,12 +19,14 @@ const references = {
   previous: 'Units referred to by the last successful command', automatic: 'No source job was specified; automatically allocate available idle units',
   all: 'All own units of the requested type', explicit: 'One explicitly named non-worker unit ID',
 };
+const buildingLocations = Object.fromEntries(
+  (Object.keys(BUILDING_DEFS) as BuildingType[]).map(type => [type, `Near an on-screen own ${type.replaceAll('_', ' ')}`]),
+) as Record<BuildingType, string>;
 const locations = {
   selected_tile: 'The persistent terrain tile selected by the player; use this for “here”',
   pointer: 'At the current unobstructed pointer tile when no tile was selected',
   previous: 'Last successfully referenced location',
-  town_center: 'Near an on-screen own town center',
-  mining_camp: 'Near an on-screen own mining camp',
+  ...buildingLocations,
   berries: 'Near an on-screen berry bush',
   woodline: 'Near an on-screen tree',
   gold: 'Beside an on-screen gold mine',
@@ -192,13 +194,13 @@ const explicitGatherIntents = (utterance: string): Array<{ resource: ResourceTyp
   return intents;
 };
 const explicitLocation = (utterance: string): keyof typeof locations | undefined => {
-  if (/\bmining[ _-]?camp\b/i.test(utterance)) return 'mining_camp';
-  if (/\btown[ _-]?cent(?:er|re)\b/i.test(utterance)) return 'town_center';
+  if (/\bselected\s+(?:object|building|unit|town[ _-]?cent(?:er|re)|archery[ _-]?range|watch[ _-]?tower|lumber[ _-]?camp|mining[ _-]?camp|house|barracks|farm|stable|blacksmith|market|wall|mill|dock)\b/i.test(utterance)) return 'selected_object';
+  const building = explicitBuilding(utterance);
+  if (building) return building;
   if (/\b(?:gold|gold[ _-]?mine)\b/i.test(utterance)) return 'gold';
   if (/\b(?:stone|stone[ _-]?mine)\b/i.test(utterance)) return 'stone';
   if (/\b(?:wood[ _-]?line|trees?)\b/i.test(utterance)) return 'woodline';
   if (/\b(?:berries|berry(?:\s+bush(?:es)?)?)\b/i.test(utterance)) return 'berries';
-  if (/\bselected\s+(?:object|building|unit)\b/i.test(utterance)) return 'selected_object';
   if (/\b(?:selected|clicked|this)\s+tile\b|\bhere\b/i.test(utterance)) return 'selected_tile';
   if (/\bthere\b/i.test(utterance)) return 'pointer';
   if (/(?:at|tile|coordinates?|x\s*[:=]?)\s*\(?\s*\d+(?:\.\d+)?\s*[, /]\s*(?:y\s*[:=]?\s*)?\d+(?:\.\d+)?/i.test(utterance)) return 'explicit';
@@ -276,11 +278,12 @@ export class GamePlanner {
       const builder = builderIds.map(id => state.units.get(id)).find(unit => unit?.owner === state.you && unit.type === 'villager');
       if (builder) position = { x: builder.x, y: builder.y };
     }
-    else if (reference === 'town_center' || reference === 'mining_camp') {
+    else if (Object.hasOwn(BUILDING_DEFS, reference)) {
       const interaction = this.interaction();
       const onScreen = new Set(interaction.onScreenBuildingIds);
-      const origin = interaction.selectedTile ?? interaction.pointer ?? interaction.camera;
-      const buildingType = reference as 'town_center' | 'mining_camp';
+      const builder = builderIds.map(id => state.units.get(id)).find(unit => unit?.owner === state.you && unit.type === 'villager');
+      const origin = interaction.selectedTile ?? interaction.pointer ?? (builder ? { x: builder.x, y: builder.y } : interaction.camera);
+      const buildingType = reference as BuildingType;
       const homes = this.ownBuildings().filter(b => b.type === buildingType && onScreen.has(b.id));
       homes.sort((a, b) => Math.hypot(a.tileX - origin.x, a.tileY - origin.y) - Math.hypot(b.tileX - origin.x, b.tileY - origin.y) || a.id - b.id);
       const home = homes[0];
@@ -303,7 +306,7 @@ export class GamePlanner {
     }
     if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y) || position.x < 0 || position.y < 0 || position.x >= state.map.size || position.y >= state.map.size) {
       if (['berries', 'woodline', 'gold', 'stone'].includes(reference)) throw new ClarificationNeeded(`I cannot see an eligible ${reference === 'woodline' ? 'tree' : reference} resource in the current viewport. Move the camera to one or select a terrain tile.`);
-      if (reference === 'town_center' || reference === 'mining_camp') throw new ClarificationNeeded(`I cannot see one of your ${reference.replace('_', ' ')}s in the current viewport. Move the camera to one or select a terrain tile and say “here”.`);
+      if (Object.hasOwn(BUILDING_DEFS, reference)) throw new ClarificationNeeded(`I cannot see one of your ${reference.replaceAll('_', ' ')} buildings in the current viewport. Move the camera to one or select a terrain tile and say “here”.`);
       if (reference === 'builder') throw new ClarificationNeeded('No assigned villager has a nearby legal building area. Select or point to a more open location.');
       throw new ClarificationNeeded('Where should that happen? Select a map tile, point at one, select an object, or give map coordinates.');
     }
@@ -512,7 +515,7 @@ export class GamePlanner {
       // An omitted location starts at the assigned builder. Placement searches
       // outward for the nearest legal footprint and the server moves the
       // villager there, replacing its previous task when this is not queued.
-      const location = buildIntent?.location ?? (semanticSlot ? resolved('location') : explicitLocation(utterance)) ?? 'builder';
+      const location = buildIntent ? buildIntent.location ?? 'builder' : (semanticSlot ? resolved('location') : explicitLocation(utterance)) ?? 'builder';
       this.available(`build:${building}`);
       const points = this.placements(building, location, utterance, count, unitIds);
       return points.map((point, index) => ({

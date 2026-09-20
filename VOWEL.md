@@ -19,6 +19,7 @@ The original feature requirements are in the
 | Authoritative game server | Validate and execute orders; return correlated acknowledgements |
 | Game monitor | Observe semantic events and propose useful announcements |
 | Announcement preference store | Share player policy between settings and conversational tools |
+| Suggestion preference store | Gate optional proposals and apply the selected strategy bias |
 
 ```mermaid
 flowchart TD
@@ -51,7 +52,8 @@ at the integration boundary.
 2. Prefer an origin-authorized client key bound to the intended session profile.
    The configured origin must match the game's origin.
 3. Join a match, then use the Vowel bar to type or start a voice conversation.
-4. Use **Options → Announcements** to control proactive notifications.
+4. Use **Options → Announce** to control proactive notifications and
+   **Options → Suggest** to enable and bias optional strategy proposals.
 
 On this development machine, the game is at `https://age-of-ai.localhost` and
 the Vowel service is at `https://vowel.localhost`. Follow [AGENTS.md](AGENTS.md)
@@ -73,17 +75,26 @@ provider or end-to-end audio path works.
 | --- | --- |
 | “How much wood do I have?” | Read-only `game_query` |
 | “Send two idle villagers to wood.” | `game_command`, decisions, planner, server |
+| “Take two villagers from farming and move them to sheep.” | Role-based worker reassignment |
+| “Use the selected villagers to build two houses.” | Reassign selected workers even when busy |
 | “Train another one.” | Command using the last acknowledged order as context |
 | “Build a house near the town center.” | Command with deterministic legal placement |
+| “Build a mill beside the market.” | Relative placement using a visible owned building |
+| “Build a house.” | Place near the assigned builder at the nearest legal footprint |
 | “Should I age up?” | Query-backed advice; not permission to advance |
 | “Tell me when I have at least three idle villagers.” | Save an announcement preference |
+| “Favor military suggestions.” | Update suggestion preferences |
+| “Yes.” after a delivered proposal | Confirm its stored command through `game_command` |
 | “Quiet for fifteen minutes.” | Temporarily mute announcements |
 
-Selection, pointer location, and previous references help resolve orders, but
-ambiguity should produce a question. New speech cancels unissued work; it cannot
-undo an order the server already accepted. Multiple orders execute sequentially,
-not as an atomic transaction. An acknowledgement means an order started or was
-queued, not that construction, movement, or training has finished.
+Selection, pointer location, worker roles, previous references, resource types,
+and visible owned building types help resolve orders. Selected workers are
+explicitly reassignable even when busy. Unnamed workers come from the idle pool;
+named source jobs deliberately retask busy workers. New speech cancels unissued
+work; it cannot undo an order the server already accepted. Multiple orders
+execute sequentially, not as an atomic transaction. An acknowledgement means an
+order started or was queued, not that construction, movement, or training has
+finished.
 
 ## Tool boundary
 
@@ -94,6 +105,8 @@ queued, not that construction, movement, or training has finished.
 | `game_get_announcement_preferences` | Read the shared settings |
 | `game_set_announcement_preference` | Update one category, threshold, or supported advisor frequency |
 | `game_mute_announcements` | Mute temporarily, mute until unmuted, or unmute |
+| `game_get_suggestion_preferences` | Read the Suggest-tab master toggle and strategy bias |
+| `game_set_suggestion_preferences` | Enable/disable proposals or select resources, military, technology, balanced, or no weighting |
 | `game_monitor_next` | Reserved long-poll event source for the registered monitor |
 | `game_monitor_validate` | Reserved candidate validation and delivery receipt |
 
@@ -111,9 +124,12 @@ coordinator; it never invokes TTS itself.
 flowchart TD
     Snapshot[Game snapshots] --> Events[Semantic events and active conditions]
     Events --> Gate[Preferences, mute, expiry, deduplication and cooldowns]
-    Settings[Announcements tab] <--> Store[Player-local preference store]
+    Settings[Announce tab] <--> Store[Announcement preference store]
+    Suggest[Suggest tab] <--> SuggestStore[Suggestion preference store]
     Tools[Conversational preference tools] --> Store
+    Tools --> SuggestStore
     Store --> Gate
+    SuggestStore --> Gate
     Gate --> Kind{Candidate needs reasoning?}
     Kind -->|Simple factual event| Monitor[Vowel game-monitor]
     Kind -->|Relevance check| Jev[Constrained decision]
@@ -130,7 +146,8 @@ flowchart TD
 
 Categories cover building/research completion, age availability, idle villagers,
 population pressure, resource shortage/surplus, enemies spotted, damage,
-idle military, strategic opportunities, economy advice, and production advice.
+idle military, strategic opportunities, economy advice, production advice, and
+optional strategy proposals.
 
 Important policy details:
 
@@ -146,6 +163,29 @@ Important policy details:
   under-attack warnings bypass mute only when the override is enabled.
 - Settings persist locally under the game client identity, behind a replaceable
   persistence interface. There is no cross-account synchronization.
+
+## Strategy suggestions
+
+Strategy suggestions are off by default and have a dedicated **Suggest** tab.
+The master toggle is authoritative. Bias can favor resources, military, or
+technology; balanced raises whichever area is falling behind; none applies no
+extra weighting. Bias does not itself enable suggestions.
+
+The browser constructs concrete candidates only from player-visible state and
+currently legal affordances—for example training villagers, placing a drop-off
+building beside a visible resource, creating military production, researching,
+or advancing age. The normal notification relevance, cooldown, conversation
+floor, and delivery revalidation still apply. Vowel phrases a delivered proposal
+as one brief optional “Want me to…?” question and does not combine it with an
+unrelated alert.
+
+A proposal never mutates the game by itself. The bridge retains the most recently
+delivered proposal for a short confirmation window. A clear affirmative reply is
+passed verbatim to `game_command`, resolved to that stored proposal, and then goes
+through the ordinary planner, preflight, authoritative server validation, and
+acknowledgement path. A negative reply discards it, and an expired proposal is no
+longer resolvable. Any intervening state change is caught by the normal command
+validation path rather than bypassed.
 
 ### Typed turns versus voice sessions
 
@@ -197,10 +237,13 @@ game mutation: compare it with server results and live game/UI state.
 | [client/src/vowel.tsx](client/src/vowel.tsx) | Connection, profile metadata, embedded overlay |
 | [client/src/game/vowel-game-api.ts](client/src/game/vowel-game-api.ts) | Tools, instructions, lifecycle and telemetry boundary |
 | [client/src/game/voice-bridge.ts](client/src/game/voice-bridge.ts) | Match-scoped queries, plan validation, execution and interruption |
+| [client/src/game/voice-planner.ts](client/src/game/voice-planner.ts) | Decision questions, deterministic references and command plans |
 | [client/src/game/voice-context.ts](client/src/game/voice-context.ts) | Player-visible facts and available actions |
 | [client/src/game/announcement-monitor.ts](client/src/game/announcement-monitor.ts) | Semantic events, candidate policy and revalidation |
 | [client/src/game/announcements.ts](client/src/game/announcements.ts) | Preferences, persistence and active conditions |
 | [client/src/screens/announcements.ts](client/src/screens/announcements.ts) | Announcements settings UI |
+| [client/src/game/suggestions.ts](client/src/game/suggestions.ts) | Suggestion toggle/bias persistence |
+| [client/src/screens/suggestions.ts](client/src/screens/suggestions.ts) | Suggest settings UI |
 | [packages/vowel-popover/src/voice-panel.tsx](packages/vowel-popover/src/voice-panel.tsx) | Typed-turn sessions |
 | [packages/vowel-popover/src/vowel-adapter.ts](packages/vowel-popover/src/vowel-adapter.ts) | Audio-session adapter |
 
