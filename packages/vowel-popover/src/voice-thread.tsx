@@ -89,7 +89,7 @@ export const VoiceThread = ({ attachments, frozen }: {
   }, [runtimeMessages, showFrozen]);
   return (
   <AttachmentsContext.Provider value={attachments}>
-  <ThreadPrimitive.Root className="flex min-h-0 flex-col">
+  <ThreadPrimitive.Root className="flex h-full min-h-0 flex-col">
     <ThreadPrimitive.Viewport ref={viewport} className="voice-thread-viewport min-h-0 flex-1 max-h-[min(20rem,45dvh)] overflow-y-auto px-3 py-2">
       <div className="flex flex-col gap-2">
         {showFrozen && frozen !== undefined && (

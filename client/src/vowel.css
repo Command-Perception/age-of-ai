@@ -278,6 +278,9 @@
 .vowel-overlay[data-resized="true"] .vowel-content-fold[data-open="true"] .overlay-fold-inner > * {
   min-height: 0; flex: 1;
 }
+.vowel-overlay[data-resized="true"] .voice-thread-viewport {
+  max-height: none;
+}
 
 .vowel-overlay__drag-handle,
 .vowel-overlay__resize-handle,

@@ -67,10 +67,15 @@ export class GameVoiceBridge {
   }
   /** Strict client preflight does not replace server validation. It prevents
    * stale references and rejects a whole plan before starting known failures. */
-  private validate(orders: PlannedOrder[]) {
+  private validate(orders: PlannedOrder[]): string[] {
     this.planner.assertPlayable();
     const resources = { ...this.state.me()!.resources! };
     const queues = new Map([...this.state.buildings.values()].map(b => [b.id, b.queue.length]));
+    const queuedPopulation = [...this.state.buildings.values()]
+      .filter(building => building.owner === this.state.you)
+      .flatMap(building => building.queue)
+      .reduce((total, item) => total + UNIT_DEFS[item.unit].pop, 0);
+    let plannedPopulation = 0;
     const placements: Array<{ x: number; y: number; size: number }> = [];
     const pay = (cost: Partial<Resources>) => {
       for (const [key, amount] of Object.entries(cost)) {
@@ -108,12 +113,16 @@ export class GameVoiceBridge {
       } else if (cmd.kind === 'train') {
         const count = (queues.get(cmd.buildingId) ?? 0) + 1;
         if (count > TRAIN_QUEUE_MAX) throw new Error('The complete order exceeds the production queue capacity.');
-        queues.set(cmd.buildingId, count); pay(UNIT_DEFS[cmd.unit].cost);
+        queues.set(cmd.buildingId, count); plannedPopulation += UNIT_DEFS[cmd.unit].pop; pay(UNIT_DEFS[cmd.unit].cost);
       } else if (cmd.kind === 'research') pay(TECH_DEFS.find(t => t.id === cmd.techId)!.cost);
       else if (cmd.kind === 'advanceAge') pay(AGE_COSTS[this.state.me()!.age + 1] ?? {});
       else if (cmd.kind === 'trade') pay(cmd.action === 'buy' ? { gold: tradeBuyCost(this.state.marketPrices[cmd.resource]) } : { [cmd.resource]: 100 });
     }
     trace('tool', 'game.command.validation', { valid: true, count: orders.length, tick: this.state.tick });
+    const player = this.state.me()!;
+    return player.pop + queuedPopulation + plannedPopulation > player.popCap
+      ? ['Population capacity will hold some queued units until more housing is completed.']
+      : [];
   }
   async command(raw: string): Promise<unknown> {
     if (typeof raw !== 'string' || !raw.trim() || raw.length > 4000) throw new Error('Give a nonempty command of at most 4000 characters.');
@@ -133,7 +142,7 @@ export class GameVoiceBridge {
     try {
       const orders = await this.planner.plan(utterance, signal);
       if (orders.length > 24) throw new Error('Use at most 24 primitive orders in one request.');
-      this.validate(orders);
+      const warnings = this.validate(orders);
       for (const order of orders) {
         if (signal.aborted) throw new Error('Command execution was cancelled.');
         this.planner.assertPlayable();
@@ -146,7 +155,7 @@ export class GameVoiceBridge {
       }
       const completed = results.filter(r => r.result.ok).length;
       trace('tool', 'game.command.result', { count: orders.length, completed, duration_ms: Math.round(performance.now() - started) });
-      return { status: completed === orders.length ? 'executed' : completed ? 'partial' : 'rejected', completed, planned: orders.length, results, note: 'Acknowledged orders are started or queued, not necessarily completed in the simulation.' };
+      return { status: completed === orders.length ? 'executed' : completed ? 'partial' : 'rejected', completed, planned: orders.length, results, warnings, note: 'Acknowledged orders are started or queued, not necessarily completed in the simulation.' };
     } catch (error) {
       if (error instanceof ClarificationNeeded) {
         this.planner.conversation.pendingClarification = { utterance: pending?.utterance ?? raw, question: error.message, at: Date.now() };

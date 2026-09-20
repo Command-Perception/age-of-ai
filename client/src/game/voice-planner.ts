@@ -13,6 +13,63 @@ const references = { selected: 'Currently selected own units', idle: 'Idle own u
 const locations = { pointer: 'Here/there at the current unobstructed pointer tile', previous: 'Last successfully referenced location', town_center: 'Near own town center', berries: 'Near a visible berry bush', woodline: 'Near a visible tree', selected_object: 'At/near the selected object', explicit: 'Exact numeric map coordinates stated by the player' };
 const explicitEnum = <T extends string>(utterance: string, values: readonly T[]): T | undefined =>
   values.find(value => new RegExp(`\\b${value.replaceAll('_', '[ _-]+')}\\b`, 'i').test(utterance));
+const numberWords: Record<string, number> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+  eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+  eighteen: 18, nineteen: 19, twenty: 20,
+};
+const spokenNumber = (value: string | undefined): number | undefined => {
+  if (!value) return undefined;
+  const parsed = /^\d+$/.test(value) ? Number(value) : numberWords[value.toLowerCase()];
+  return parsed !== undefined && Number.isInteger(parsed) && parsed >= 1 && parsed <= 20 ? parsed : undefined;
+};
+const workerOrdinal = (utterance: string): number | undefined => {
+  const match = utterance.match(/\b(?:worker|villager|builder)\s+(?:number\s+)?(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d{1,2})\b/i);
+  return spokenNumber(match?.[1]);
+};
+const explicitTrainIntent = (utterance: string): boolean =>
+  /\b(?:create|make|produce|train|queue)\b[^.!?;]{0,80}\b(?:villagers?|workers?|swordsmen|archers?|knights?|fishing\s+boats?|war\s+galleys|transports?)\b/i.test(utterance);
+const explicitMultiAction = (utterance: string): boolean =>
+  /(?:,|;|\b(?:and\s+then|then|and)\b)\s*(?:assign|send|put|move|build|construct|create|make|produce|train|queue|research|attack|repair|stop|garrison|unload|buy|sell|cancel|delete)\b/i.test(utterance);
+const explicitTrainUnit = (utterance: string): UnitType | undefined => {
+  if (/\b(?:villagers?|workers?)\b/i.test(utterance)) return 'villager';
+  if (/\bswordsmen\b|\bswordsman\b/i.test(utterance)) return 'swordsman';
+  if (/\barchers?\b/i.test(utterance)) return 'archer';
+  if (/\bknights?\b/i.test(utterance)) return 'knight';
+  if (/\bfishing\s+boats?\b/i.test(utterance)) return 'fishing_boat';
+  if (/\bwar\s+galleys\b|\bwar\s+galley\b/i.test(utterance)) return 'war_galley';
+  if (/\btransports?\b/i.test(utterance)) return 'transport';
+  return undefined;
+};
+const explicitTrainQuantity = (utterance: string): number | undefined => {
+  const words = Object.keys(numberWords).join('|');
+  const match = utterance.match(new RegExp(`\\b(?:create|make|produce|train|queue)\\s+(?:another\\s+)?(?:the\\s+)?(${words}|\\d{1,2})\\b`, 'i'));
+  if (match) return spokenNumber(match[1]);
+  return /\b(?:an?|one|another)\s+(?:more\s+)?(?:villager|worker|swordsman|archer|knight|fishing\s+boat|war\s+galley|transport)\b/i.test(utterance) ? 1 : undefined;
+};
+const explicitGatherResource = (utterance: string): ResourceType | undefined => {
+  if (/\b(?:wood|trees?|woodline)\b/i.test(utterance)) return 'wood';
+  if (/\bgold\b/i.test(utterance)) return 'gold';
+  if (/\bstone\b/i.test(utterance)) return 'stone';
+  if (/\b(?:food|berries|berry|sheep|farm|fish)\b/i.test(utterance)) return 'food';
+  return undefined;
+};
+const explicitGatherTarget = (utterance: string): string | undefined => {
+  if (/\b(?:berries|berry)\b/i.test(utterance)) return 'berries';
+  if (/\bsheep\b/i.test(utterance)) return 'sheep';
+  if (/\bfarm\b/i.test(utterance)) return 'farm';
+  if (/\bfish\b/i.test(utterance)) return 'fish';
+  if (/\bselected\s+(?:resource|tree|mine|bush|farm|fish)\b/i.test(utterance)) return 'selected';
+  if (/\b(?:this|that)\s+(?:resource|tree|mine|bush|farm|fish)\b|\bhere\b/i.test(utterance)) return 'pointer';
+  if (/\b(?:same|previous)\s+(?:resource|source|one)\b/i.test(utterance)) return 'previous';
+  return explicitGatherResource(utterance) ? 'nearest' : undefined;
+};
+const explicitGatherIntent = (utterance: string): boolean =>
+  explicitGatherResource(utterance) !== undefined && (
+    /\b(?:assign|send|put|gather|collect)\b/i.test(utterance) ||
+    /\b(?:an?|one)\s+idle\s+(?:villager|worker|builder)\b/i.test(utterance) ||
+    workerOrdinal(utterance) !== undefined
+  );
 const explicitLocation = (utterance: string): keyof typeof locations | undefined => {
   if (/\btown[ _-]?cent(?:er|re)\b/i.test(utterance)) return 'town_center';
   if (/\b(?:wood[ _-]?line|trees?)\b/i.test(utterance)) return 'woodline';
@@ -52,7 +109,11 @@ export class GamePlanner {
     else if (reference === 'idle' || reference === 'automatic') units = units.filter(u => u.state === 'idle' && !reserved.has(u.id));
     else if (reference === 'previous') units = units.filter(u => this.conversation.lastUnitIds.includes(u.id));
     else if (reference === 'explicit') {
-      units = units.filter(u => new RegExp(`(?:#|\\bid\\s*)${u.id}\\b`, 'i').test(utterance));
+      const ordinal = workerOrdinal(utterance);
+      if (ordinal !== undefined && kind === 'villager') {
+        units.sort((a, b) => a.id - b.id);
+        units = units[ordinal - 1] ? [units[ordinal - 1]!] : [];
+      } else units = units.filter(u => new RegExp(`(?:#|\\bid\\s*)${u.id}\\b`, 'i').test(utterance));
       if (units.length !== 1) throw new ClarificationNeeded('Which unit ID should I use?');
     } else if (reference !== 'all') throw new ClarificationNeeded('Which units should receive that order?');
     const count = quantity === 'all' ? units.length : Number(quantity);
@@ -116,7 +177,13 @@ export class GamePlanner {
     const classification = await this.ask(utterance, { family: choice('Classify the requested game action. Conversation, questions and advice must be none, not actions.', {
       gather: 'Assign resource gathering', build: 'Construct a building', move: 'Move units or set a rally point', train: 'Train units', research: 'Research technology or advance age', combat: 'Attack, repair, stop, garrison or unload', economy: 'Buy/sell at the market, cancel production or explicitly delete own objects', multi_action: 'Two or more distinct orders', none: 'Question, discussion, advice or no order',
     }) }, signal);
-    const family = required(classification, 'family', 'What game action would you like me to take?');
+    const family = explicitMultiAction(utterance)
+      ? 'multi_action'
+      : explicitTrainIntent(utterance)
+        ? 'train'
+        : explicitGatherIntent(utterance)
+          ? 'gather'
+          : required(classification, 'family', 'What game action would you like me to take?');
     if (family === 'none') throw new ClarificationNeeded('That sounds like a question or discussion. I can query the game without changing it.');
     if (family === 'multi_action') {
       if (nested) throw new ClarificationNeeded('Please give those orders one at a time.');
@@ -151,6 +218,13 @@ export class GamePlanner {
     };
     const group = (worker = false, defaultIdleWorker = false) => {
       let reference = resolved('units');
+      const singleIdleWorker = /\b(?:an?|one)\s+idle\s+(?:villager|worker|builder)\b/i.test(utterance);
+      const ordinal = workerOrdinal(utterance);
+      // “An idle worker” identifies a category, not one specific villager.
+      // Choose from the idle pool deterministically; multi-action planning
+      // reserves the first choice so the next clause receives another worker.
+      if (singleIdleWorker) reference = 'idle';
+      else if (ordinal !== undefined) reference = 'explicit';
       // A bare labor order such as “build a house” or “gather wood” delegates
       // worker selection to the game. Explicit/deictic references still need a
       // confident model answer so “those villagers” cannot silently mean others.
@@ -158,16 +232,23 @@ export class GamePlanner {
       if (!reference && defaultIdleWorker && !explicitReference) reference = 'automatic';
       if (!reference) reference = get('units', 'Which units should I use?');
       let type = resolved('unitType');
+      if (singleIdleWorker || ordinal !== undefined) type = 'villager';
       if (!type && reference === 'automatic') type = 'villager';
       if (!type) type = worker ? get('unitType', 'Villagers or fishing boats?') : get('unitType', 'Which type of units?');
       let quantity = resolved('quantity');
+      if (reference === 'all') quantity = 'all';
+      else if (singleIdleWorker || reference === 'explicit' && ordinal !== undefined) quantity = '1';
+      else if (reference === 'idle' && !/\b(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|\d+)\s+(?:idle\s+)?(?:villagers?|workers?|builders?)\b/i.test(utterance)) {
+        quantity = /\bidle\s+(?:villagers|workers|builders)\b/i.test(utterance) ? 'all' : '1';
+      }
       if (!quantity && reference === 'automatic') quantity = '1';
       if (!quantity) quantity = get('quantity', 'How many units should I use?');
       return this.chooseUnits(reference, type, quantity, utterance, reserved);
     };
     const result = (command: GameCommand, summary: string): PlannedOrder[] => [{ command, summary }];
     if (family === 'train') {
-      const unit = get('unit', 'What unit should I train?') as UnitType; const count = Number(get('quantity', 'How many units should I train?'));
+      const unit = explicitTrainUnit(utterance) ?? get('unit', 'What unit should I train?') as UnitType;
+      const count = explicitTrainQuantity(utterance) ?? Number(get('quantity', 'How many units should I train?'));
       this.available(`train:${unit}`); const producer = this.producer(unit);
       if (producer.queue.length + count > TRAIN_QUEUE_MAX) throw new Error('That quantity exceeds the available production queue.');
       return Array.from({ length: count }, () => ({ command: { kind: 'train' as const, buildingId: producer.id, unit }, summary: `Queued one ${unit} at ${producer.type} #${producer.id}` }));
@@ -229,8 +310,8 @@ export class GamePlanner {
       return result({ kind: 'move', unitIds, ...point }, `Ordered ${unitIds.length} units to move to ${Math.floor(point.x)}, ${Math.floor(point.y)}`);
     }
     if (family === 'gather') {
-      const resource = get('resource', 'Which resource should they gather?') as ResourceType;
-      const target = get('target', 'Which resource source should they use?');
+      const resource = explicitGatherResource(utterance) ?? get('resource', 'Which resource should they gather?') as ResourceType;
+      const target = explicitGatherTarget(utterance) ?? get('target', 'Which resource source should they use?');
       const workers = unitIds.map(id => this.state.units.get(id)!);
       const boats = workers.every(u => u.type === 'fishing_boat');
       if (!boats && workers.some(u => u.type === 'fishing_boat')) throw new ClarificationNeeded('Please order villagers and fishing boats separately.');
