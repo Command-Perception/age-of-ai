@@ -14,6 +14,7 @@ export const announcementCategories = {
   strategicOpportunities: ['Advisor', 'Strategic opportunities'],
   economyAdvice: ['Advisor', 'Economy optimization suggestions'],
   productionAdvice: ['Advisor', 'Production suggestions'],
+  strategySuggestion: ['Advisor', 'Strategy suggestions'],
 } as const;
 export type AnnouncementCategory = keyof typeof announcementCategories;
 export type Frequency = 'low' | 'normal' | 'high';
@@ -40,6 +41,7 @@ const defaults = (): AnnouncementPreferences => ({
   underAttack: { enabled: true }, militaryIdle: { enabled: true },
   strategicOpportunities: { enabled: true, frequency: 'low' }, economyAdvice: { enabled: false, frequency: 'low' },
   productionAdvice: { enabled: false, frequency: 'low' },
+  strategySuggestion: { enabled: true },
   mute: { mutedUntil: null, untilUnmuted: false, urgentOverrideEnabled: true },
 });
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

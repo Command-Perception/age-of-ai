@@ -37,11 +37,11 @@ export class GameVoiceBridge {
   private commandController: AbortController | undefined;
   constructor(private state: GameState, private interaction: () => GameInteraction, private send: (command: GameCommand, signal: AbortSignal) => Promise<CommandResult>) {
     this.planner = new GamePlanner(state, interaction, () => voice?.decide, trace);
-    this.monitor = new AnnouncementMonitor(state, interaction, () => voice?.decide, trace);
+    this.monitor = new AnnouncementMonitor(state, interaction, () => voice?.decide, trace, suggestion => { this.planner.conversation.pendingSuggestion = suggestion; });
   }
   resetConversation() {
     const memory = this.planner.conversation;
-    memory.lastUnitIds = []; delete memory.lastCommand; delete memory.lastLocation; delete memory.lastBuildingId; delete memory.pendingClarification;
+    memory.lastUnitIds = []; delete memory.lastCommand; delete memory.lastLocation; delete memory.lastBuildingId; delete memory.pendingClarification; delete memory.pendingSuggestion;
   }
   snapshot() { this.monitor.scan(); }
   interrupt() {
@@ -129,11 +129,21 @@ export class GameVoiceBridge {
     if (this.running) throw new Error('Another voice order is still in progress. Please wait for its result.');
     const session = voice;
     if (!session) throw new Error('Vowel is not connected.');
+    const suggestion = this.planner.conversation.pendingSuggestion;
+    const affirmative = /^(?:yes|yeah|yep|sure|ok(?:ay)?|please|do it|go ahead|sim|s[ií])[.!]?$/i.test(raw.trim());
+    const negative = /^(?:no|nope|don'?t|cancel(?: that)?|never ?mind|n[aã]o)[.!]?$/i.test(raw.trim());
+    if (suggestion && suggestion.expiresAt > Date.now() && negative) {
+      delete this.planner.conversation.pendingSuggestion;
+      return { status: 'cancelled', message: 'Suggestion declined. No game action was taken.' };
+    }
+    const confirmedSuggestion = suggestion && suggestion.expiresAt > Date.now() && affirmative ? suggestion : undefined;
+    if (suggestion && (suggestion.expiresAt <= Date.now() || confirmedSuggestion)) delete this.planner.conversation.pendingSuggestion;
     const pending = this.planner.conversation.pendingClarification;
     if (pending && /^(?:cancel(?: that)?|never mind|nevermind|forget it)[.!]?$/i.test(raw.trim())) {
       delete this.planner.conversation.pendingClarification; return { status: 'cancelled', message: 'Cancelled the unresolved request. No game action was taken.' };
     }
-    const utterance = pending && Date.now() - pending.at < 60000 ? `Pending request: ${pending.utterance}\nClarification asked: ${pending.question}\nPlayer reply: ${raw}` : raw;
+    const utterance = confirmedSuggestion?.command ?? (pending && Date.now() - pending.at < 60000 ? `Clarification continuation for one combined request. Original order: ${pending.utterance}\nClarification asked: ${pending.question}\nPlayer clarification: ${raw}` : raw);
+    if (confirmedSuggestion) trace('input', 'game.suggestion.confirmed', { id: confirmedSuggestion.id, command: confirmedSuggestion.command });
     this.commandController = new AbortController();
     const signal = AbortSignal.any([session.controller.signal, this.controller.signal, this.commandController.signal, AbortSignal.timeout(90000)]);
     this.running = true;

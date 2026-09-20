@@ -1,8 +1,9 @@
-import { BUILDING_DEFS, NODE_DEFS, type BuildingSnap, type ResourceType } from '@age/shared';
+import { BUILDING_DEFS, NODE_DEFS, TECH_DEFS, TRAIN_QUEUE_MAX, UNIT_DEFS, type BuildingSnap, type ResourceType, type UnitType } from '@age/shared';
 import type { GameState } from '../state';
 import { activeAnnouncements, announcementAllowed, announcementPreferences, type ActiveAnnouncementCondition, type AnnouncementCategory } from './announcements';
 import { gameAffordances, gameVoiceContext, type GameInteraction } from './voice-context';
 import { choice, type Decide, type GameTrace } from './voice-decision';
+import { suggestionPreferences, type SuggestionBias } from './suggestions';
 
 export type SemanticGameEvent = {
   id: string; type: 'building.completed' | 'research.completed' | 'economy.idle_villagers' | 'population.changed' | 'age.available' | 'resources.changed' | 'enemy.spotted' | 'combat.under_attack' | 'military.idle' | 'strategy.review';
@@ -13,10 +14,12 @@ export interface GameAnnouncement {
   id: string; category: AnnouncementCategory; priority: 'low' | 'normal' | 'high' | 'urgent';
   createdAt: number; expiresAt: number; dedupeKey: string; conditionId?: string;
   factualSummary: string; conversationalHint?: string; source: 'deterministic' | 'decision_model' | 'background_llm';
+  proposedCommand?: string;
   requiresRevalidation: boolean; event: SemanticGameEvent;
 }
-const cooldowns: Partial<Record<AnnouncementCategory, number>> = { idleVillagers: 15000, population: 20000, resourceShortage: 30000, resourceSurplus: 45000, enemySpotted: 15000, underAttack: 10000, militaryIdle: 30000, strategicOpportunities: 45000, economyAdvice: 45000, productionAdvice: 45000 };
-const advisory = new Set<AnnouncementCategory>(['resourceSurplus', 'strategicOpportunities', 'economyAdvice', 'productionAdvice']);
+const cooldowns: Partial<Record<AnnouncementCategory, number>> = { idleVillagers: 15000, population: 20000, resourceShortage: 30000, resourceSurplus: 45000, enemySpotted: 15000, underAttack: 10000, militaryIdle: 30000, strategicOpportunities: 45000, economyAdvice: 45000, productionAdvice: 45000, strategySuggestion: 75000 };
+const advisory = new Set<AnnouncementCategory>(['resourceSurplus', 'strategicOpportunities', 'economyAdvice', 'productionAdvice', 'strategySuggestion']);
+const strategyAdvisory = new Set<AnnouncementCategory>(['strategicOpportunities', 'economyAdvice', 'productionAdvice', 'strategySuggestion']);
 const priorityOf = (category: AnnouncementCategory): GameAnnouncement['priority'] => category === 'underAttack' ? 'urgent' : ['population', 'ageAvailable', 'enemySpotted'].includes(category) ? 'high' : advisory.has(category) ? 'low' : 'normal';
 const rank = { urgent: 4, high: 3, normal: 2, low: 1 };
 
@@ -47,13 +50,15 @@ export class AnnouncementMonitor {
   private connected = false;
   private lastActiveSignature = '';
   private offPreferences: () => void;
+  private offSuggestions: () => void;
   private lastScan = 0;
   private lastReview = 0;
   private idleMilitarySince = 0;
   private shortage: { label: string; until: number } | undefined;
   private allowed = new Map<AnnouncementCategory, boolean>();
-  constructor(private state: GameState, private interaction: () => GameInteraction, private decide: () => Decide | undefined, private trace: GameTrace) {
+  constructor(private state: GameState, private interaction: () => GameInteraction, private decide: () => Decide | undefined, private trace: GameTrace, private onSuggestion?: (suggestion: { id: string; command: string; expiresAt: number }) => void) {
     this.offPreferences = announcementPreferences.subscribe(() => { this.scan(true); this.prune(); this.wake?.(); });
+    this.offSuggestions = suggestionPreferences.subscribe(() => { this.latched.delete('strategy-suggestion'); this.scan(true); this.prune(); this.wake?.(); });
   }
   subscribe(listener: (event: SemanticGameEvent) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   setVoiceState(connected: boolean, busy: boolean) {
@@ -66,12 +71,12 @@ export class AnnouncementMonitor {
   }
   resourceBlocked(label: string) { this.shortage = { label, until: Date.now() + 15000 }; this.scan(true); }
   private suppress(candidate: GameAnnouncement, reason: SuppressionReason) { this.trace('tool', 'game.notification.suppressed', { id: candidate.id, category: candidate.category, suppressed_reason: reason }); }
-  private emit(category: AnnouncementCategory, type: SemanticGameEvent['type'], label: string, ids: number[], conditionId?: string, key?: string) {
+  private emit(category: AnnouncementCategory, type: SemanticGameEvent['type'], label: string, ids: number[], conditionId?: string, key?: string, proposedCommand?: string) {
     const now = Date.now();
     const event: SemanticGameEvent = { id: crypto.randomUUID(), category, type, at: now, tick: this.state.tick, entityIds: ids, label };
     for (const listener of this.listeners) listener(event);
     const priority = priorityOf(category);
-    const candidate: GameAnnouncement = { id: event.id, category, priority, createdAt: now, expiresAt: now + (priority === 'urgent' ? 6000 : advisory.has(category) ? 20000 : conditionId ? 15000 : 60000), dedupeKey: key ?? conditionId ?? event.id, conditionId, factualSummary: label, source: 'deterministic', requiresRevalidation: !!conditionId, event };
+    const candidate: GameAnnouncement = { id: event.id, category, priority, createdAt: now, expiresAt: now + (priority === 'urgent' ? 6000 : advisory.has(category) ? 20000 : conditionId ? 15000 : 60000), dedupeKey: key ?? conditionId ?? event.id, conditionId, factualSummary: label, source: 'deterministic', requiresRevalidation: !!conditionId, event, ...(proposedCommand ? { proposedCommand } : {}) };
     this.trace('tool', 'game.notification.candidate', { id: candidate.id, category, priority, source: candidate.source, entityIds: ids.slice(0, 8) });
     if (!this.connected) return;
     const reason = this.reason(candidate);
@@ -87,13 +92,108 @@ export class AnnouncementMonitor {
     const old = this.active.get(id);
     if (truth) {
       this.active.set(id, { id, category, label, detail, activeSince: old?.activeSince ?? Date.now(), enabled: announcementPreferences.get()[category].enabled });
-      if (!this.latched.has(id)) { this.latched.add(id); this.emit(category, type, label, ids, id); }
+      const proposedCommand = category === 'strategySuggestion' ? detail : undefined;
+      if (!this.latched.has(id)) { this.latched.add(id); this.emit(category, type, label, ids, id, undefined, proposedCommand); }
       else if (old && old.label !== label && (this.queue.some(c => c.conditionId === id) || [...this.reported.values()].some(c => c.conditionId === id))) {
         for (const [key, candidate] of this.reported) if (candidate.conditionId === id) { this.suppress(candidate, 'superseded'); this.reported.delete(key); this.analysisStates.delete(key); }
-        this.emit(category, type, label, ids, id);
+        this.emit(category, type, label, ids, id, undefined, proposedCommand);
       }
     } else this.active.delete(id);
     if (reset) { this.latched.delete(id); this.delivered.delete(id); }
+  }
+  private strategyProposal(): { label: string; command: string; ids: number[]; area: Exclude<SuggestionBias, 'balanced' | 'none'>; score: number } | undefined {
+    const preferences = suggestionPreferences.get();
+    if (!preferences.enabled) return undefined;
+    const player = this.state.me();
+    if (!player?.resources) return undefined;
+    const resources = player.resources;
+    const units = [...this.state.units.values()].filter(unit => unit.owner === this.state.you);
+    const buildings = [...this.state.buildings.values()].filter(building => building.owner === this.state.you);
+    const affordances = gameAffordances(this.state);
+    const enabled = (id: string) => affordances.some(action => action.id === id && action.enabled);
+    const queuedPopulation = buildings.flatMap(building => building.queue).reduce((sum, item) => sum + UNIT_DEFS[item.unit].pop, 0);
+    const placementAvailable = (type: keyof typeof BUILDING_DEFS, origin: { x: number; y: number }) => {
+      const size = BUILDING_DEFS[type].size;
+      const baseX = Math.floor(origin.x - size / 2); const baseY = Math.floor(origin.y - size / 2);
+      for (let dx = -9; dx <= 9; dx++) for (let dy = -9; dy <= 9; dy++) if (this.state.canPlace(type, baseX + dx, baseY + dy)) return true;
+      return false;
+    };
+    const candidates: Array<{ label: string; command: string; ids: number[]; area: 'resources' | 'military' | 'technology'; score: number }> = [];
+    const trainingCount = (type: UnitType, wanted: number): { count: number; producerId?: number } => {
+      const producers = buildings.filter(building => building.progress >= 1 && BUILDING_DEFS[building.type].trains.includes(type) && building.queue.length < TRAIN_QUEUE_MAX);
+      producers.sort((a, b) => a.queue.length - b.queue.length || a.id - b.id);
+      const producer = producers[0];
+      if (!producer || !enabled(`train:${type}`)) return { count: 0 };
+      let count = Math.min(wanted, TRAIN_QUEUE_MAX - producer.queue.length, Math.floor((player.popCap - player.pop - queuedPopulation) / UNIT_DEFS[type].pop));
+      for (const [resource, amount] of Object.entries(UNIT_DEFS[type].cost)) count = Math.min(count, Math.floor((resources[resource as ResourceType] ?? 0) / amount));
+      return { count: Math.max(0, count), producerId: producer.id };
+    };
+
+    const villagers = units.filter(unit => unit.type === 'villager');
+    const villagerTraining = trainingCount('villager', 5);
+    if (villagerTraining.count > 0 && villagers.length < Math.max(12, player.age * 10)) {
+      const count = villagerTraining.count;
+      candidates.push({
+        area: 'resources', score: 68 + Math.max(0, 12 - villagers.length) * 2,
+        label: `Want me to train ${count} more villager${count === 1 ? '' : 's'}?`,
+        command: `Train ${count} villagers.`, ids: villagerTraining.producerId ? [villagerTraining.producerId] : [],
+      });
+    }
+
+    const interaction = this.interaction();
+    const onScreenResources = new Set(interaction.onScreenResourceIds);
+    const origin = interaction.selectedTile ?? interaction.pointer ?? interaction.camera;
+    const visibleGold = [...this.state.nodes.values()].filter(node => node.type === 'gold_mine' && node.amount > 0 && onScreenResources.has(node.id));
+    visibleGold.sort((a, b) => Math.hypot(a.tileX - origin.x, a.tileY - origin.y) - Math.hypot(b.tileX - origin.x, b.tileY - origin.y) || a.id - b.id);
+    const goldWithoutCamp = visibleGold[0] && !buildings.some(building => building.type === 'mining_camp' && Math.hypot(building.tileX - visibleGold[0].tileX, building.tileY - visibleGold[0].tileY) <= 9) && placementAvailable('mining_camp', { x: visibleGold[0].tileX, y: visibleGold[0].tileY }) ? visibleGold[0] : undefined;
+    if (goldWithoutCamp && enabled('build:mining_camp') && villagers.some(unit => unit.state === 'idle')) {
+      candidates.push({ area: 'resources', score: (resources.gold < 250 ? 88 : 64), label: 'Want me to build a mining camp beside the visible gold?', command: 'Build a mining camp next to the visible gold.', ids: [goldWithoutCamp.id] });
+    }
+    const visibleTrees = [...this.state.nodes.values()].filter(node => node.type === 'tree' && node.amount > 0 && onScreenResources.has(node.id));
+    visibleTrees.sort((a, b) => Math.hypot(a.tileX - origin.x, a.tileY - origin.y) - Math.hypot(b.tileX - origin.x, b.tileY - origin.y) || a.id - b.id);
+    const treeWithoutCamp = visibleTrees[0] && !buildings.some(building => building.type === 'lumber_camp' && Math.hypot(building.tileX - visibleTrees[0].tileX, building.tileY - visibleTrees[0].tileY) <= 9) && placementAvailable('lumber_camp', { x: visibleTrees[0].tileX, y: visibleTrees[0].tileY }) ? visibleTrees[0] : undefined;
+    if (treeWithoutCamp && enabled('build:lumber_camp') && villagers.some(unit => unit.state === 'idle') && resources.wood < 250) {
+      candidates.push({ area: 'resources', score: 76, label: 'Want me to build a lumber camp beside the visible woodline?', command: 'Build a lumber camp next to the visible woodline.', ids: [treeWithoutCamp.id] });
+    }
+
+    const militaryUnits = units.filter(unit => !['villager', 'fishing_boat', 'transport'].includes(unit.type));
+    for (const type of ['knight', 'archer', 'swordsman'] as UnitType[]) {
+      const training = trainingCount(type, 3);
+      if (training.count <= 0) continue;
+      candidates.push({
+        area: 'military', score: 62 + Math.max(0, player.age * 3 - militaryUnits.length) * 3,
+        label: `Want me to train ${training.count} ${type.replaceAll('_', ' ')}${training.count === 1 ? '' : 's'}?`,
+        command: `Train ${training.count} ${type.replaceAll('_', ' ')}${training.count === 1 ? '' : 's'}.`, ids: training.producerId ? [training.producerId] : [],
+      });
+      break;
+    }
+    const visibleBuildings = new Set(interaction.onScreenBuildingIds);
+    const visibleTownCenter = buildings.find(building => building.type === 'town_center' && visibleBuildings.has(building.id));
+    if (!buildings.some(building => building.type === 'barracks') && visibleTownCenter && placementAvailable('barracks', { x: visibleTownCenter.tileX + BUILDING_DEFS.town_center.size / 2, y: visibleTownCenter.tileY + BUILDING_DEFS.town_center.size / 2 }) && enabled('build:barracks') && villagers.some(unit => unit.state === 'idle')) {
+      candidates.push({ area: 'military', score: 72, label: 'Want me to build a barracks near the visible town center?', command: 'Build a barracks near the visible town center.', ids: [] });
+    }
+
+    const advance = affordances.find(action => action.id === 'advanceAge' && action.enabled);
+    if (advance) candidates.push({ area: 'technology', score: 92, label: `Want me to advance to Age ${player.age + 1}?`, command: 'Advance to the next age.', ids: [] });
+    const research = affordances.find(action => action.category === 'research' && action.id.startsWith('research:') && action.enabled);
+    if (research) {
+      const techId = research.id.slice('research:'.length);
+      const tech = TECH_DEFS.find(item => item.id === techId);
+      candidates.push({ area: 'technology', score: 66, label: `Want me to research ${tech?.name ?? techId.replaceAll('_', ' ')}?`, command: `Research ${techId}.`, ids: [] });
+    }
+
+    const eligible = preferences.bias === 'resources' || preferences.bias === 'military' || preferences.bias === 'technology'
+      ? candidates.filter(candidate => candidate.area === preferences.bias)
+      : candidates;
+    if (preferences.bias === 'balanced') {
+      for (const candidate of eligible) {
+        if (candidate.area === 'resources' && villagers.length < 12) candidate.score += 12;
+        if (candidate.area === 'military' && militaryUnits.length < Math.max(2, player.age * 2)) candidate.score += 12;
+        if (candidate.area === 'technology' && advance) candidate.score += 12;
+      }
+    }
+    eligible.sort((a, b) => b.score - a.score || a.command.localeCompare(b.command));
+    return eligible[0];
   }
   scan(force = false) {
     if (this.closed || !this.state.hasSnapshot) return;
@@ -156,11 +256,13 @@ export class AnnouncementMonitor {
     this.condition('economy-advice', 'economyAdvice', imbalance ? `Most gatherers are on ${imbalance[0]} with a growing stockpile` : 'Economy balance', !!imbalance, !imbalance, 'strategy.review');
     const strategic = !advance?.enabled && remaining > 2 && (surplus.length > 0 || idleProduction.length > 1);
     this.condition('strategic-opportunity', 'strategicOpportunities', 'A spending or production opportunity may be available', strategic, !strategic, 'strategy.review');
+    const suggestion = this.strategyProposal();
+    this.condition('strategy-suggestion', 'strategySuggestion', suggestion?.label ?? '', !!suggestion, !suggestion, 'strategy.review', suggestion?.ids, suggestion?.command);
     // Persistent advisory conditions may be reconsidered at the player's chosen
     // frequency; state warnings retain hysteresis until the condition clears.
     if (this.initialized && now - this.lastReview >= 15000) {
       this.lastReview = now;
-      for (const c of this.active.values()) if (advisory.has(c.category)) this.emit(c.category, 'strategy.review', c.label, [], c.id);
+      for (const c of this.active.values()) if (advisory.has(c.category)) this.emit(c.category, 'strategy.review', c.label, [], c.id, undefined, c.category === 'strategySuggestion' ? c.detail : undefined);
     }
     this.initialized = true;
     this.publishActive(); this.prune();
@@ -171,6 +273,7 @@ export class AnnouncementMonitor {
   }
   private reason(candidate: GameAnnouncement): SuppressionReason | undefined {
     const prefs = announcementPreferences.get();
+    if (strategyAdvisory.has(candidate.category) && !suggestionPreferences.get().enabled) return 'disabled';
     if (!prefs[candidate.category].enabled) return 'disabled';
     if (!announcementAllowed(candidate.category, candidate.priority === 'urgent')) return 'muted';
     if (candidate.expiresAt <= Date.now()) return 'expired';
@@ -213,8 +316,8 @@ export class AnnouncementMonitor {
       const decide = this.decide();
       if (!decide) { this.suppress(candidate, 'low_relevance'); return { closed: false }; }
       try {
-        const answer = await decide('Evaluate this possible game announcement without executing any game action.', { candidate, game: gameVoiceContext(this.state, this.interaction()), preferences: announcementPreferences.get(), recentAnnouncements: this.history.slice(-8), conversationBusy: this.busy }, {
-          relevance: choice('Is this current, useful, actionable and not repetitive enough to report? Quiet is the default.', { announce: 'Useful and timely; report this candidate', silent: 'Low relevance, repetitive or not actionable; stay silent' }),
+        const answer = await decide('Evaluate this possible game announcement without executing any game action.', { candidate, game: gameVoiceContext(this.state, this.interaction()), preferences: announcementPreferences.get(), suggestionPreferences: suggestionPreferences.get(), recentAnnouncements: this.history.slice(-8), conversationBusy: this.busy }, {
+          relevance: choice('Is this current, useful, actionable and not repetitive enough to report? For a strategy suggestion, it must be legal, fit the selected bias, and remain an optional question. Quiet is the default.', { announce: 'Useful and timely; report this candidate', silent: 'Low relevance, repetitive or not actionable; stay silent' }),
         }, signal);
         if (answer.relevance?.choice !== 'announce' || answer.relevance.confidence < 0.7) { this.suppress(candidate, 'low_relevance'); return { closed: false }; }
         candidate.source = 'decision_model';
@@ -224,7 +327,7 @@ export class AnnouncementMonitor {
     this.reported.set(candidate.id, candidate);
     if (advisory.has(candidate.category)) this.analysisStates.set(candidate.id, this.analysisState());
     while (this.reported.size > 32) { const id = this.reported.keys().next().value!; this.reported.delete(id); this.analysisStates.delete(id); }
-    return { candidate, needsAnalysis: advisory.has(candidate.category), context: gameVoiceContext(this.state, this.interaction()), preferences: announcementPreferences.get(), recentAnnouncements: this.history.slice(-8), conversationBusy: this.busy };
+    return { candidate, needsAnalysis: advisory.has(candidate.category), context: gameVoiceContext(this.state, this.interaction()), preferences: announcementPreferences.get(), suggestionPreferences: suggestionPreferences.get(), recentAnnouncements: this.history.slice(-8), conversationBusy: this.busy };
   }
   validate(value: unknown, analysis: unknown, phase: unknown): unknown {
     if (!value || typeof value !== 'object' || !('id' in value) || typeof value.id !== 'string') return { valid: false };
@@ -252,11 +355,12 @@ export class AnnouncementMonitor {
     }
     this.trace('tool', 'game.notification.revalidated', { id: candidate.id, category: candidate.category, phase, revalidated: true });
     if (phase === 'delivery') { this.delivering.set(candidate.id, candidate); while (this.delivering.size > 16) this.delivering.delete(this.delivering.keys().next().value!); }
+    if (phase === 'delivery' && candidate.proposedCommand) this.onSuggestion?.({ id: candidate.id, command: candidate.proposedCommand, expiresAt: Date.now() + 60_000 });
     return { valid: true, candidate };
   }
   private analysisState(): string {
     const player = this.state.me();
     return JSON.stringify({ age: player?.age, ageProgress: player?.ageProgress !== undefined, pop: player?.pop, cap: player?.popCap, techs: player?.techs, resources: Object.entries(player?.resources ?? {}).map(([r, n]) => [r, Math.floor(n / 50)]), affordable: gameAffordances(this.state).filter(a => a.enabled).map(a => a.id), assignments: [...this.state.units.values()].filter(u => u.owner === this.state.you).map(u => [u.id, u.targetId, u.state === 'idle']), queues: [...this.state.buildings.values()].filter(b => b.owner === this.state.you).map(b => [b.id, b.queue.length, b.research?.id]) });
   }
-  dispose() { this.closed = true; this.offPreferences(); this.wake?.(); this.queue = []; this.reported.clear(); this.listeners.clear(); activeAnnouncements.set([]); }
+  dispose() { this.closed = true; this.offPreferences(); this.offSuggestions(); this.wake?.(); this.queue = []; this.reported.clear(); this.listeners.clear(); activeAnnouncements.set([]); }
 }

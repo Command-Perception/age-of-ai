@@ -5,6 +5,7 @@ import { el } from '../ui';
 import { settings, RENDER_SCALES, LANGS, type Lang } from '../settings';
 import { t } from '../i18n';
 import { announcementsPanel } from './announcements';
+import { suggestionsPanel } from './suggestions';
 import {
   DEFAULT_VOWEL_URL,
   VowelNetworkError,
@@ -50,8 +51,9 @@ export class SettingsOverlay {
   private canLeave = false;
   private leaveInGame = false;
   private confirming = false;
-  private activeTab: 'room' | 'vowel' | 'announcements' = 'room';
+  private activeTab: 'room' | 'vowel' | 'announcements' | 'suggestions' = 'room';
   private disposeAnnouncements?: () => void;
+  private disposeSuggestions?: () => void;
 
   constructor(private deps: SettingsDeps) {
     this.el = el('div', 'overlay hidden');
@@ -64,6 +66,7 @@ export class SettingsOverlay {
   /** Monta (ou remonta) o cartão de opções no idioma atual. */
   private buildCard(): HTMLElement {
     this.disposeAnnouncements?.();
+    this.disposeSuggestions?.();
     this.scaleBtns = [];
     const card = el('div', 'panel card opt-card');
     card.appendChild(el('h2', '', t('opt.title')));
@@ -76,9 +79,11 @@ export class SettingsOverlay {
     vowelTab.type = 'button';
     roomTab.setAttribute('role', 'tab');
     vowelTab.setAttribute('role', 'tab');
-    const announcementsTab = el('button', 'opt-tab', 'Announcements');
+    const announcementsTab = el('button', 'opt-tab', 'Announce');
     announcementsTab.type = 'button'; announcementsTab.setAttribute('role', 'tab');
-    tabs.append(roomTab, vowelTab, announcementsTab);
+    const suggestionsTab = el('button', 'opt-tab', 'Suggest');
+    suggestionsTab.type = 'button'; suggestionsTab.setAttribute('role', 'tab');
+    tabs.append(roomTab, vowelTab, announcementsTab, suggestionsTab);
     card.appendChild(tabs);
 
     const roomPanel = el('div', 'opt-tab-panel');
@@ -279,24 +284,30 @@ export class SettingsOverlay {
 
     const announcements = announcementsPanel();
     this.disposeAnnouncements = announcements.dispose;
-    const selectTab = (tab: 'room' | 'vowel' | 'announcements') => {
+    const suggestions = suggestionsPanel();
+    this.disposeSuggestions = suggestions.dispose;
+    const selectTab = (tab: 'room' | 'vowel' | 'announcements' | 'suggestions') => {
       this.activeTab = tab;
       const roomActive = tab === 'room';
       roomTab.classList.toggle('active', roomActive);
       vowelTab.classList.toggle('active', tab === 'vowel');
       announcementsTab.classList.toggle('active', tab === 'announcements');
+      suggestionsTab.classList.toggle('active', tab === 'suggestions');
       announcementsTab.setAttribute('aria-selected', String(tab === 'announcements'));
+      suggestionsTab.setAttribute('aria-selected', String(tab === 'suggestions'));
       roomTab.setAttribute('aria-selected', String(roomActive));
       vowelTab.setAttribute('aria-selected', String(tab === 'vowel'));
       roomPanel.classList.toggle('hidden', !roomActive);
       vowelPanel.classList.toggle('hidden', tab !== 'vowel');
       announcements.panel.classList.toggle('hidden', tab !== 'announcements');
+      suggestions.panel.classList.toggle('hidden', tab !== 'suggestions');
     };
     roomTab.addEventListener('click', () => selectTab('room'));
     vowelTab.addEventListener('click', () => selectTab('vowel'));
     announcementsTab.addEventListener('click', () => selectTab('announcements'));
+    suggestionsTab.addEventListener('click', () => selectTab('suggestions'));
     selectTab(this.activeTab);
-    card.append(roomPanel, vowelPanel, announcements.panel);
+    card.append(roomPanel, vowelPanel, announcements.panel, suggestions.panel);
 
     const close = el('button', 'btn primary', t('opt.close'));
     close.addEventListener('click', () => this.hide());
@@ -345,7 +356,7 @@ export class SettingsOverlay {
     }
   }
 
-  show(tab?: 'room' | 'vowel' | 'announcements'): void {
+  show(tab?: 'room' | 'vowel' | 'announcements' | 'suggestions'): void {
     if (tab && tab !== this.activeTab) {
       this.activeTab = tab;
       const fresh = this.buildCard();

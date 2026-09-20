@@ -12,6 +12,8 @@ export function announcementsPanel(): { panel: HTMLElement; dispose: () => void 
   const controls = new Map<AnnouncementCategory, { check: HTMLInputElement; number?: HTMLInputElement; frequency?: HTMLSelectElement }>();
   let group = '';
   for (const [category, [section, label]] of Object.entries(announcementCategories) as [AnnouncementCategory, readonly [string, string]][]) {
+    // Strategy suggestions have their own dedicated tab and master toggle.
+    if (category === 'strategySuggestion') continue;
     if (section !== group) { panel.append(el('h3', '', section)); group = section; }
     const row = el('label', 'opt-row');
     const check = el('input') as HTMLInputElement;
@@ -60,7 +62,7 @@ export function announcementsPanel(): { panel: HTMLElement; dispose: () => void 
       if (control.frequency) control.frequency.value = prefs[key].frequency ?? 'low';
     }
     active.replaceChildren();
-    const current = activeAnnouncements.get();
+    const current = activeAnnouncements.get().filter(condition => condition.category !== 'strategySuggestion');
     if (!current.length) active.append(el('p', 'opt-hint', 'No active conditions. Join a game to see live updates.'));
     for (const condition of current) active.append(el('p', '', `${condition.label}${condition.enabled ? '' : ' — disabled'}${condition.detail ? ` · ${condition.detail}` : ''}`));
     urgent.checked = prefs.mute.urgentOverrideEnabled;

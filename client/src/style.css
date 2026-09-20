@@ -222,7 +222,7 @@ input.txt:focus { border-color: var(--gold); }
 
 .opt-card { width: 430px; gap: 14px; }
 .opt-tabs {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.5fr); gap: 4px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px;
   padding: 4px; border: 1px solid var(--border-dim); border-radius: 6px;
   background: rgba(10, 7, 4, 0.42);
 }
@@ -245,6 +245,22 @@ input.txt:focus { border-color: var(--gold); }
 .announcement-settings .txt { padding: 5px; font-size: 12px; }
 .announcement-active p { margin: 3px 0; font-size: 13px; }
 .announcement-settings .vowel-settings-actions { flex-wrap: wrap; }
+.suggestion-settings { max-height: min(60vh, 600px); overflow-y: auto; padding: 2px 8px 8px 2px; gap: 12px; }
+.suggestion-settings h3 { color: var(--gold-bright); font-size: 14px; margin: 8px 0 0; }
+.suggestion-toggle .opt-label { width: auto; flex: 1; text-align: left; }
+.suggestion-toggle input { accent-color: var(--gold); width: 18px; height: 18px; }
+.suggestion-biases { display: grid; gap: 7px; }
+.suggestion-biases.disabled { opacity: 0.52; }
+.suggestion-bias {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  border: 1px solid var(--border-dim); border-radius: 5px; cursor: pointer;
+  background: rgba(12, 8, 4, 0.32);
+}
+.suggestion-bias:has(input:checked) { border-color: var(--gold); background: rgba(74, 53, 23, 0.48); }
+.suggestion-bias input { accent-color: var(--gold); }
+.suggestion-bias-copy { display: flex; flex-direction: column; gap: 2px; }
+.suggestion-bias-copy strong { color: var(--text); font-size: 13.5px; }
+.suggestion-bias-copy small { color: var(--muted); font-size: 11.5px; line-height: 1.3; }
 .opt-row { display: flex; align-items: center; gap: 12px; }
 .opt-label { color: var(--text); font-size: 14.5px; width: 70px; flex: none; }
 .opt-pct { color: var(--muted); font-size: 13px; width: 42px; text-align: right; font-variant-numeric: tabular-nums; }
