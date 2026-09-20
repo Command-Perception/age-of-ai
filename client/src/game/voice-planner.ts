@@ -10,7 +10,7 @@ export interface GameConversationContext {
 }
 export interface PlannedOrder { command: GameCommand; summary: string }
 type ActionFamily = 'gather' | 'build' | 'move' | 'train' | 'research' | 'combat' | 'economy';
-interface ActionSlot { family: ActionFamily; index: number; total: number }
+interface ActionSlot { family: ActionFamily; index: number; total: number; familyOrdinal: number }
 const labels = (values: string[]) => Object.fromEntries(values.map(value => [value, value.replaceAll('_', ' ')]));
 const references = {
   selected: 'Currently selected own units', idle: 'Idle own units', remaining: 'Available units not allocated to an earlier action in this request',
@@ -71,6 +71,30 @@ const explicitBuilding = (utterance: string): BuildingType | undefined => {
   });
   matches.sort((a, b) => a.index - b.index);
   return matches[0]?.type;
+};
+const explicitBuildIntents = (utterance: string): Array<{ building: BuildingType; quantity: number; location?: keyof typeof locations }> => {
+  const action = /\b(?:build(?:ing)?|construct(?:ing)?|place|putting up|put up|erect(?:ing)?)\b/gi;
+  const boundary = /\b(?:and|then)\s+(?:assign|send|move|gather|collect|harvest|build|construct|place|train|create|make|produce|research|advance|attack|repair|stop|garrison|unload)\b/i;
+  const intents: Array<{ building: BuildingType; quantity: number; location?: keyof typeof locations }> = [];
+  for (const verb of utterance.matchAll(action)) {
+    const rest = utterance.slice(verb.index!);
+    const afterVerb = rest.slice(verb[0].length);
+    const nextAction = afterVerb.search(boundary);
+    const clause = nextAction >= 0 ? rest.slice(0, verb[0].length + nextAction) : rest;
+    const matches = buildingAliases.flatMap(([type, pattern]) => {
+      const match = pattern.exec(clause);
+      return match ? [{ type, index: match.index, length: match[0].length }] : [];
+    });
+    matches.sort((a, b) => a.index - b.index);
+    const named = matches[0];
+    if (!named) continue;
+    // Only text after the building name can describe its placement. This keeps
+    // a later clause such as “and assign a villager to berries” from becoming
+    // the building location.
+    const locationText = clause.slice(named.index + named.length);
+    intents.push({ building: named.type, quantity: explicitBuildQuantity(clause, named.type), location: explicitLocation(locationText) });
+  }
+  return intents;
 };
 const pluralBuildings: Partial<Record<BuildingType, RegExp>> = {
   town_center: /\btown[ _-]?cent(?:er|re)s\b/i,
@@ -144,6 +168,26 @@ const explicitGatherTarget = (utterance: string): string | undefined => {
   if (/\b(?:this|that)\s+(?:resource|tree|mine|bush|farm|fish)\b|\bhere\b/i.test(utterance)) return 'pointer';
   if (/\b(?:same|previous)\s+(?:resource|source|one)\b/i.test(utterance)) return 'previous';
   return explicitGatherResource(utterance) ? 'nearest' : undefined;
+};
+const explicitGatherIntents = (utterance: string): Array<{ resource: ResourceType; target: string }> => {
+  const intents: Array<{ resource: ResourceType; target: string }> = [];
+  const sources = /\b(?:berry(?:\s+bush(?:es)?)?|berries|sheep|farms?|fish(?:ing)?|woodline|trees?|wood|gold(?:\s+mine)?|stone(?:\s+mine)?|food)\b/gi;
+  for (const match of utterance.matchAll(sources)) {
+    // “From food/wood/…” describes which workers to retask, not their new
+    // destination. The destination is the later “to sheep/gold/…” phrase.
+    const prefix = utterance.slice(Math.max(0, match.index! - 16), match.index);
+    if (/\bfrom\s+(?:the\s+)?$/i.test(prefix)) continue;
+    const value = match[0].toLowerCase();
+    if (/^berr/.test(value)) intents.push({ resource: 'food', target: 'berries' });
+    else if (value === 'sheep') intents.push({ resource: 'food', target: 'sheep' });
+    else if (/^farm/.test(value)) intents.push({ resource: 'food', target: 'farm' });
+    else if (/^fish/.test(value)) intents.push({ resource: 'food', target: 'fish' });
+    else if (/^(?:wood|woodline|tree)/.test(value)) intents.push({ resource: 'wood', target: 'nearest' });
+    else if (value.startsWith('gold')) intents.push({ resource: 'gold', target: 'nearest' });
+    else if (value.startsWith('stone')) intents.push({ resource: 'stone', target: 'nearest' });
+    else intents.push({ resource: 'food', target: 'nearest' });
+  }
+  return intents;
 };
 const explicitLocation = (utterance: string): keyof typeof locations | undefined => {
   if (/\btown[ _-]?cent(?:er|re)\b/i.test(utterance)) return 'town_center';
@@ -311,8 +355,12 @@ export class GamePlanner {
       }
       if (!families.length) throw new ClarificationNeeded('That sounds like a question or discussion. I can query the game without changing it.');
       const plan: PlannedOrder[] = [];
+      const familyCounts = new Map<ActionFamily, number>();
       for (let index = 0; index < families.length; index++) {
-        const orders = await this.plan(utterance, signal, reserved, { family: families[index], index: index + 1, total: families.length });
+        const family = families[index];
+        const familyOrdinal = (familyCounts.get(family) ?? 0) + 1;
+        familyCounts.set(family, familyOrdinal);
+        const orders = await this.plan(utterance, signal, reserved, { family, index: index + 1, total: families.length, familyOrdinal });
         for (const order of orders) if ('unitIds' in order.command) for (const id of order.command.unitIds) reserved.add(id);
         plan.push(...orders);
       }
@@ -443,15 +491,16 @@ export class GamePlanner {
     if (action === 'stop') return result({ kind: 'stop', unitIds }, `Stopped ${unitIds.length} units`);
     if (family === 'build') {
       if (unitIds.some(id => this.state.units.get(id)?.type !== 'villager')) throw new Error('Only villagers can build.');
+      const buildIntent = explicitBuildIntents(utterance)[slot.familyOrdinal - 1];
       // Exact game building names are deterministic facts; do not ask the
       // player to repeat “house”, “barracks”, or “town center” because a model
       // returned unknown for text the planner can resolve safely itself.
-      const building = (semanticSlot ? get('building', 'Which building should I construct?') : explicitBuilding(utterance) ?? explicitEnum(utterance, Object.keys(BUILDING_DEFS) as BuildingType[]) ?? get('building', 'Which building should I construct?')) as BuildingType;
-      const count = semanticSlot ? Number(get('buildingQuantity', 'How many should I build?')) : explicitBuildQuantity(utterance, building);
+      const building = (buildIntent?.building ?? (!semanticSlot ? explicitBuilding(utterance) ?? explicitEnum(utterance, Object.keys(BUILDING_DEFS) as BuildingType[]) : undefined) ?? get('building', 'Which building should I construct?')) as BuildingType;
+      const count = buildIntent?.quantity ?? (semanticSlot ? Number(get('buildingQuantity', 'How many should I build?')) : explicitBuildQuantity(utterance, building));
       // Houses have a conventional default beside a town center that is
       // actually visible in the viewport. Other buildings still require an
       // explicit location; “here” continues to resolve to the selected tile.
-      const location = (semanticSlot ? resolved('location') : explicitLocation(utterance)) ?? (building === 'house' ? 'town_center' : get('location', 'Where should I place it?'));
+      const location = buildIntent?.location ?? (semanticSlot ? resolved('location') : explicitLocation(utterance)) ?? (building === 'house' ? 'town_center' : get('location', 'Where should I place it?'));
       this.available(`build:${building}`);
       const points = this.placements(building, location, utterance, count);
       return points.map((point, index) => ({
@@ -464,8 +513,11 @@ export class GamePlanner {
       return result({ kind: 'move', unitIds, ...point }, `Ordered ${unitIds.length} units to move to ${Math.floor(point.x)}, ${Math.floor(point.y)}`);
     }
     if (family === 'gather') {
-      const resource = (semanticSlot ? get('resource', 'Which resource should they gather?') : explicitGatherResource(utterance) ?? get('resource', 'Which resource should they gather?')) as ResourceType;
-      const target = semanticSlot ? get('target', 'Which resource source should they use?') : explicitGatherTarget(utterance) ?? get('target', 'Which resource source should they use?');
+      const intent = semanticSlot ? explicitGatherIntents(utterance)[slot.familyOrdinal - 1] : undefined;
+      const resource = (intent?.resource ?? (semanticSlot ? resolved('resource') : explicitGatherResource(utterance)) ?? get('resource', 'Which resource should they gather?')) as ResourceType;
+      // Once the resource is known, an unnamed source means the nearest valid
+      // visible source. Do not ask players to choose a particular tree or mine.
+      const target = intent?.target ?? (semanticSlot ? resolved('target') : explicitGatherTarget(utterance)) ?? 'nearest';
       const workers = unitIds.map(id => this.state.units.get(id)!);
       const boats = workers.every(u => u.type === 'fishing_boat');
       if (!boats && workers.some(u => u.type === 'fishing_boat')) throw new ClarificationNeeded('Please order villagers and fishing boats separately.');
