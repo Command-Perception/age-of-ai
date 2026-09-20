@@ -5,7 +5,16 @@ export interface Point { x: number; y: number }
 export interface GameAffordance {
   id: string; label: string; category: string; enabled: boolean; cost?: Partial<Resources>; reasonUnavailable?: string;
 }
-export interface GameInteraction { pointer?: Point; camera: Point; paused: boolean; ended: boolean; connected: boolean }
+export interface GameInteraction {
+  pointer?: Point;
+  selectedTile?: Point;
+  camera: Point;
+  onScreenResourceIds: number[];
+  onScreenBuildingIds: number[];
+  paused: boolean;
+  ended: boolean;
+  connected: boolean;
+}
 export const affordable = (resources: Resources | undefined, cost: Partial<Resources>) => !!resources && Object.entries(cost).every(([r, n]) => resources[r as keyof Resources] >= n);
 
 export function gameAffordances(state: GameState): GameAffordance[] {
@@ -48,7 +57,7 @@ export function gameVoiceContext(state: GameState, interaction: GameInteraction)
   const ownUnits = [...state.units.values()].filter(u => u.owner === state.you);
   const ownBuildings = [...state.buildings.values()].filter(b => b.owner === state.you);
   const home = ownBuildings.find(b => b.type === 'town_center');
-  const origin = interaction.pointer ?? (home ? { x: home.tileX, y: home.tileY } : interaction.camera);
+  const origin = interaction.selectedTile ?? interaction.pointer ?? (home ? { x: home.tileX, y: home.tileY } : interaction.camera);
   const nodes = [...state.nodes.values()].filter(n => state.nodeVisible(n)).sort((a, b) => Math.hypot(a.tileX - origin.x, a.tileY - origin.y) - Math.hypot(b.tileX - origin.x, b.tileY - origin.y));
   const nearby = ['tree', 'berry_bush', 'gold_mine', 'stone_mine', 'fish'].flatMap(type => nodes.filter(n => n.type === type).slice(0, 3));
   return {
@@ -56,12 +65,13 @@ export function gameVoiceContext(state: GameState, interaction: GameInteraction)
     phase: interaction.ended ? 'ended' : interaction.paused ? 'paused' : !interaction.connected ? 'disconnected' : !state.hasSnapshot ? 'loading' : player?.defeated ? 'defeated' : !player ? 'spectating' : 'playing',
     player: player ? { age: player.age, ageProgress: player.ageProgress, resources: player.resources, population: { current: player.pop, capacity: player.popCap }, techs: player.techs ?? [] } : null,
     selection: [...state.selection].filter(id => ownUnits.some(u => u.id === id) || visibleBuildings(state).some(b => b.id === id) || [...state.units.values()].some(u => u.id === id && state.unitVisible(u))),
-    pointer: interaction.pointer, camera: interaction.camera,
+    pointer: interaction.pointer, selectedTile: interaction.selectedTile, camera: interaction.camera,
     units: ownUnits.map(u => ({ id: u.id, type: u.type, state: u.state, x: Math.round(u.x), y: Math.round(u.y), targetId: u.targetId })),
     buildings: ownBuildings.map(b => ({ id: b.id, type: b.type, x: b.tileX, y: b.tileY, progress: b.progress, queue: b.queue, research: b.research })),
     idleVillagerIds: ownUnits.filter(u => u.type === 'villager' && u.state === 'idle').map(u => u.id),
     visibleEnemies: [...state.units.values()].filter(u => !state.alliedOwners.has(u.owner) && state.unitVisible(u)).map(u => ({ id: u.id, type: u.type, x: Math.round(u.x), y: Math.round(u.y) })).slice(0, 20),
     nearbyResources: nearby.map(n => ({ id: n.id, type: n.type, x: n.tileX, y: n.tileY, amount: n.amount })),
+    onScreenResources: nodes.filter(n => interaction.onScreenResourceIds.includes(n.id)).map(n => ({ id: n.id, type: n.type, x: n.tileX, y: n.tileY, amount: n.amount })),
     availableActions: gameAffordances(state),
   };
 }

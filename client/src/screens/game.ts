@@ -71,14 +71,36 @@ export class GameScreen {
    *  nunca esteve jogando.) */
   get isSpectating(): boolean { return this.spectating; }
 
-  /** Screen-space pointer is meaningful only over the unobstructed game canvas. */
-  voiceInteraction(): { pointer?: { x: number; y: number }; camera: { x: number; y: number } } {
+  /** Pointer is ephemeral; selectedTile and on-screen resources are stable,
+   *  explicit visual references for conversational commands. */
+  voiceInteraction(): { pointer?: { x: number; y: number }; selectedTile?: { x: number; y: number }; camera: { x: number; y: number }; onScreenResourceIds: number[]; onScreenBuildingIds: number[] } {
     const ui = this.input.ui;
     const bounds = this.canvas.getBoundingClientRect();
     const point = ui.hasMouse && document.elementFromPoint(ui.mouseX + bounds.left, ui.mouseY + bounds.top) === this.canvas
       ? this.cam.screenToWorld(ui.mouseX, ui.mouseY) : undefined;
     const pointer = point && point.x >= 0 && point.y >= 0 && point.x < this.state.map.size && point.y < this.state.map.size ? point : undefined;
-    return { pointer, camera: { x: this.cam.x, y: this.cam.y } };
+    const onScreenResourceIds = [...this.state.nodes.values()]
+      .filter(node => {
+        if (!this.state.nodeVisible(node) || node.amount <= 0) return false;
+        const screen = this.cam.worldToScreen(node.tileX + 0.5, node.tileY + 0.5);
+        return screen.x >= 0 && screen.y >= 0 && screen.x <= this.cam.viewW && screen.y <= this.cam.viewH;
+      })
+      .map(node => node.id);
+    const onScreenBuildingIds = [...this.state.buildings.values()]
+      .filter(building => {
+        if (!this.state.buildingVisible(building)) return false;
+        const size = BUILDING_DEFS[building.type].size;
+        const screen = this.cam.worldToScreen(building.tileX + size / 2, building.tileY + size / 2);
+        return screen.x >= 0 && screen.y >= 0 && screen.x <= this.cam.viewW && screen.y <= this.cam.viewH;
+      })
+      .map(building => building.id);
+    return {
+      pointer,
+      ...(ui.selectedTile ? { selectedTile: { ...ui.selectedTile } } : {}),
+      camera: { x: this.cam.x, y: this.cam.y },
+      onScreenResourceIds,
+      onScreenBuildingIds,
+    };
   }
 
   constructor(map: MapData, players: PlayerInfo[], you: number, private deps: GameScreenDeps, fogEnabled = false, spectating = false) {

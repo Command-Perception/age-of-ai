@@ -25,6 +25,9 @@ export interface UIState {
   mouseX: number;
   mouseY: number;
   hasMouse: boolean;
+  /** Persistent terrain tile chosen with a simple left click. Voice commands
+   *  use this stable anchor for phrases such as “build a mining camp here”. */
+  selectedTile: { x: number; y: number } | null;
   /** Retângulo de seleção (pixels de tela) durante arrasto, ou null. */
   boxRect: { x0: number; y0: number; x1: number; y1: number } | null;
   /** Ao arrastar pra construir MURALHA: tile de início do arrasto, ou null.
@@ -35,7 +38,7 @@ export interface UIState {
 }
 
 export function createUIState(): UIState {
-  return { placement: null, mouseX: 0, mouseY: 0, hasMouse: false, boxRect: null, wallDrag: null, orders: [] };
+  return { placement: null, mouseX: 0, mouseY: 0, hasMouse: false, selectedTile: null, boxRect: null, wallDrag: null, orders: [] };
 }
 
 /** Tiles (1x1) de uma linha de muralha do início do arrasto até o cursor. Segue

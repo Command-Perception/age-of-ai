@@ -268,6 +268,8 @@ export class GameInput {
         this.ui.wallDrag = null;
       } else if (this.gs.selection.size > 0) {
         this.gs.selection.clear();
+      } else if (this.ui.selectedTile) {
+        this.ui.selectedTile = null;
       }
       return;
     }
@@ -394,9 +396,13 @@ export class GameInput {
       const tx = Math.floor(w.x), ty = Math.floor(w.y);
       const inside = tx >= 0 && ty >= 0 && tx < this.gs.map.size && ty < this.gs.map.size;
       this.sfx.selectTerrain(inside && this.gs.map.tiles[ty * this.gs.map.size + tx] === TILE_WATER);
-      if (!shift) this.gs.selection.clear();
+      if (!shift) {
+        this.gs.selection.clear();
+        this.ui.selectedTile = inside && this.gs.fog.isExplored(tx, ty) ? { x: tx, y: ty } : null;
+      }
       return;
     }
+    if (!shift) this.ui.selectedTile = null;
     const id =
       pick.kind === 'unit' ? pick.unit.id
       : pick.kind === 'building' ? pick.building.id

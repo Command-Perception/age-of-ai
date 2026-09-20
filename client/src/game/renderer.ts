@@ -377,6 +377,19 @@ export class Renderer {
       ctx.restore();
     }
 
+    // --- persistent selected terrain tile (voice/location anchor) ---
+    const selectedTile = ui.selectedTile;
+    if (selectedTile && this.gs.fog.isExplored(selectedTile.x, selectedTile.y)) {
+      ctx.save();
+      this.isoDiamond(ctx, px, py, selectedTile.x, selectedTile.y, 1);
+      ctx.fillStyle = 'rgba(245, 205, 82, 0.18)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255, 225, 120, 0.95)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.restore();
+    }
+
     // --- bandeiras de reunião ---
     for (const id of this.gs.selection) {
       const b = this.gs.buildings.get(id);
